@@ -15,6 +15,8 @@ export const organisations = pgTable("organisations", {
   id: uuid("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  /** Clerk Organization id (org_...). Nullable: an organisation can exist before it's linked to Clerk. */
+  clerkOrganisationId: text("clerk_organisation_id").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
