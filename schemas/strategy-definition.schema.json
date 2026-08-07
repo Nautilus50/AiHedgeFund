@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arf-os.dev/schemas/strategy-definition.schema.json",
+  "title": "StrategyDefinition",
+  "description": "Strategy Definition Language (SDL) document — the contract between the Strategy Architect and the Pine Engineer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "strategy", "market", "signals", "execution", "risk", "costs", "parameters", "segments", "falsification"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "family", "thesis", "directions"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "family": { "type": "string", "minLength": 1 },
+        "thesis": { "type": "string", "minLength": 1 },
+        "directions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["long", "short"] },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assetClass", "symbols", "timeframe", "timezone", "session", "chartType"],
+      "properties": {
+        "assetClass": { "type": "string", "enum": ["crypto", "forex", "futures", "indices", "metals", "equities"] },
+        "symbols": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+        "timeframe": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string", "minLength": 1 },
+        "session": { "type": "string", "minLength": 1 },
+        "chartType": { "type": "string", "const": "standard_ohlc" }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["longEntry", "shortEntry"],
+      "properties": {
+        "longEntry": { "type": "string", "minLength": 1 },
+        "shortEntry": { "type": "string", "minLength": 1 }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryOrder", "pyramiding", "allowReversal", "processOnClose", "calcOnEveryTick"],
+      "properties": {
+        "entryOrder": { "type": "string", "enum": ["market_next_bar", "stop", "limit"] },
+        "pyramiding": { "type": "integer", "const": 0 },
+        "allowReversal": { "type": "boolean" },
+        "processOnClose": { "type": "boolean" },
+        "calcOnEveryTick": { "type": "boolean", "const": false }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sizingModel", "sizePercent", "leverage", "stopLoss", "takeProfit", "oneStopOneTarget"],
+      "properties": {
+        "sizingModel": { "type": "string", "enum": ["percent_of_equity", "fixed", "cash"] },
+        "sizePercent": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+        "leverage": { "type": "number", "minimum": 1 },
+        "stopLoss": { "$ref": "#/$defs/riskLevel" },
+        "takeProfit": { "$ref": "#/$defs/riskLevel" },
+        "oneStopOneTarget": { "type": "boolean", "const": true }
+      }
+    },
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commissionType", "commissionValue", "slippageTicks"],
+      "properties": {
+        "commissionType": { "type": "string", "enum": ["percent", "cash_per_order", "cash_per_contract"] },
+        "commissionValue": { "type": "number", "minimum": 0 },
+        "slippageTicks": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "type", "default", "min", "max", "step"],
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "type": { "type": "string", "enum": ["int", "float", "bool", "string"] },
+          "default": {},
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "step": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "segments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warmupBars", "selectionMode", "embargoBars"],
+      "properties": {
+        "warmupBars": { "type": "integer", "minimum": 0 },
+        "selectionMode": {
+          "type": "string",
+          "enum": ["fixed_split", "rolling_walk_forward", "anchored_walk_forward", "fixed_parameters"]
+        },
+        "embargoBars": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "falsification": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "riskLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "valueParameter"],
+      "properties": {
+        "type": { "type": "string", "enum": ["atr_multiple", "risk_multiple", "fixed_ticks", "fixed_percent"] },
+        "valueParameter": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

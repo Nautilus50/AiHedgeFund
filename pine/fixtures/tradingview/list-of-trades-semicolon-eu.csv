@@ -1,0 +1,5 @@
+Trade #;Type;Signal;Date/Time;Price;Contracts;Profit;Profit %
+1;Entry long;Long Entry;15.01.2024 08:30;43000,25;0,01;;
+1;Exit long;Long Exit;16.01.2024 10:00;43500,50;0,01;15,25;1,53
+2;Entry short;Short Entry;17.01.2024 09:15;44290,00;0,01;;
+2;Exit short;Short Exit;18.01.2024 14:00;43800,00;0,01;4,90;0,49

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arf-os.dev/schemas/agent-handoff.schema.json",
+  "title": "AgentHandoff",
+  "description": "Typed contract for agent-to-agent handoffs in the ARF-OS research pipeline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "handoffId", "campaignId", "strategyId", "strategyVersionId",
+    "fromAgent", "toRole", "taskId", "status", "summary",
+    "assumptions", "unknowns", "riskFlags", "artefactIds", "evidenceIds",
+    "requestedAction", "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "handoffId": { "type": "string", "format": "uuid" },
+    "campaignId": { "type": "string", "format": "uuid" },
+    "strategyId": { "type": ["string", "null"], "format": "uuid" },
+    "strategyVersionId": { "type": ["string", "null"], "format": "uuid" },
+    "fromAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "agentId", "promptVersion"],
+      "properties": {
+        "role": { "$ref": "#/$defs/agentRole" },
+        "agentId": { "type": "string", "minLength": 1 },
+        "promptVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "toRole": { "$ref": "#/$defs/agentRole" },
+    "taskId": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["COMPLETE", "BLOCKED", "FAILED"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "riskFlags": { "type": "array", "items": { "type": "string" } },
+    "artefactIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+    "evidenceIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+    "requestedAction": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "agentRole": {
+      "type": "string",
+      "enum": [
+        "CHIEF_RESEARCH_ORCHESTRATOR",
+        "IDEA_SCOUT",
+        "INDICATOR_RESEARCHER",
+        "STRATEGY_ARCHITECT",
+        "PINE_ENGINEER",
+        "BACKTEST_ENGINEER",
+        "ROBUSTNESS_VALIDATOR",
+        "FORWARD_TEST_OPERATOR",
+        "STRATEGY_JUDGE",
+        "DATA_INTEGRITY_ANALYST",
+        "PORTFOLIO_RESEARCHER"
+      ]
+    }
+  }
+}

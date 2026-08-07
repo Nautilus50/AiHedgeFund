@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arf-os.dev/schemas/signal-event.schema.json",
+  "title": "SignalEvent",
+  "description": "TradingView forward-test signal-event payload, delivered via a deployment-specific webhook.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "deploymentId", "strategyVersionId", "eventId", "eventType",
+    "symbol", "timeframe", "barTime", "sentAt", "price", "quantityModel"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "arf.signal.v1" },
+    "deploymentId": { "type": "string", "format": "uuid" },
+    "strategyVersionId": { "type": "string", "format": "uuid" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": {
+      "type": "string",
+      "enum": ["ENTRY_LONG", "ENTRY_SHORT", "EXIT_LONG", "EXIT_SHORT", "STOP_HIT", "TARGET_HIT"]
+    },
+    "symbol": { "type": "string", "minLength": 1 },
+    "timeframe": { "type": "string", "minLength": 1 },
+    "barTime": { "type": "string", "format": "date-time" },
+    "sentAt": { "type": "string", "format": "date-time" },
+    "price": { "type": "number", "exclusiveMinimum": 0 },
+    "quantityModel": { "type": "string", "enum": ["percent_of_equity", "fixed", "cash"] },
+    "stopPrice": { "type": "number", "exclusiveMinimum": 0 },
+    "targetPrice": { "type": "number", "exclusiveMinimum": 0 }
+  }
+}
