@@ -12,6 +12,7 @@ import {
   createStrategy,
   getStrategyLineage,
   getStrategyVersion,
+  listStrategies,
   saveStrategyDefinition,
   savePineRevision,
 } from "../services/strategy-registry.js";
@@ -83,6 +84,29 @@ export function registerStrategyRoutes(app: FastifyInstance, deps: StrategyRoute
     });
 
     reply.code(201).send(result);
+  });
+
+  app.get("/v1/strategies", async (request, reply) => {
+    const auth = request.requireAuth();
+    const query = request.query as { campaignId?: string; cursor?: string; limit?: string };
+
+    const result = await listStrategies(deps.db, auth.organisationId, {
+      campaignId: query.campaignId,
+      cursor: query.cursor,
+      limit: query.limit ? Number(query.limit) : undefined,
+    });
+
+    if (!result.ok) {
+      sendProblem(reply, {
+        status: 400,
+        title: "Invalid cursor",
+        detail: "The cursor query parameter is malformed.",
+        instance: request.url,
+      });
+      return;
+    }
+
+    reply.send(result.page);
   });
 
   app.post("/v1/strategies/:id/versions", async (request, reply) => {

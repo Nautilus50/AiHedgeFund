@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { canonicalHash, generateId, sha256Hex, StrategyDefinition } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import {
@@ -8,6 +8,7 @@ import {
   strategyLineage,
   strategyVersions,
 } from "@arf-os/db";
+import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
 
 /**
  * Content hash of a Pine source string. Plain sha256 of the raw text — not
@@ -255,4 +256,103 @@ export async function getStrategyLineage(db: Database, organisationId: string, s
     .innerJoin(strategyVersions, eq(strategyVersions.id, strategyLineage.strategyVersionId))
     .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
     .where(and(eq(strategyLineage.strategyVersionId, strategyVersionId), eq(strategies.organisationId, organisationId)));
+}
+
+export interface StrategyListItem {
+  id: string;
+  name: string;
+  campaignId: string;
+  createdAt: Date;
+  latestVersionId: string | undefined;
+  latestVersionNumber: number | undefined;
+  latestWorkflowState: string | undefined;
+}
+
+export interface ListStrategiesInput {
+  campaignId?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export type ListStrategiesResult =
+  | { ok: true; page: Page<{ id: string; createdAt: Date } & StrategyListItem> }
+  | { ok: false; reasonCode: "INVALID_CURSOR" };
+
+/**
+ * Organisation-scoped, cursor-paginated strategy list, each row annotated
+ * with its highest-versionNumber StrategyVersion. Two queries total
+ * regardless of page size: one for the page of strategies, one batched
+ * `IN (...)` lookup for their versions — no N+1.
+ */
+export async function listStrategies(
+  db: Database,
+  organisationId: string,
+  input: ListStrategiesInput,
+): Promise<ListStrategiesResult> {
+  const limit = clampPageSize(input.limit);
+
+  let cursorClause;
+  if (input.cursor) {
+    const decoded = decodeCursor(input.cursor);
+    if (!decoded.ok) {
+      return { ok: false, reasonCode: "INVALID_CURSOR" };
+    }
+    const { createdAtIso, id } = decoded.cursor;
+    const createdAtDate = new Date(createdAtIso);
+    cursorClause = or(
+      gt(strategies.createdAt, createdAtDate),
+      and(eq(strategies.createdAt, createdAtDate), gt(strategies.id, id)),
+    );
+  }
+
+  const baseClause = input.campaignId
+    ? and(eq(strategies.organisationId, organisationId), eq(strategies.campaignId, input.campaignId))
+    : eq(strategies.organisationId, organisationId);
+
+  const strategyRows = await db
+    .select()
+    .from(strategies)
+    .where(cursorClause ? and(baseClause, cursorClause) : baseClause)
+    .orderBy(strategies.createdAt, strategies.id)
+    .limit(limit + 1);
+
+  const page = buildPage(strategyRows, limit);
+  if (page.items.length === 0) {
+    return { ok: true, page: { items: [], nextCursor: page.nextCursor } };
+  }
+
+  const versionRows = await db
+    .select({
+      strategyId: strategyVersions.strategyId,
+      id: strategyVersions.id,
+      versionNumber: strategyVersions.versionNumber,
+      workflowState: strategyVersions.workflowState,
+    })
+    .from(strategyVersions)
+    .where(
+      inArray(
+        strategyVersions.strategyId,
+        page.items.map((s) => s.id),
+      ),
+    );
+
+  const latestByStrategy = new Map<string, (typeof versionRows)[number]>();
+  for (const version of versionRows) {
+    const existing = latestByStrategy.get(version.strategyId);
+    if (!existing || version.versionNumber > existing.versionNumber) {
+      latestByStrategy.set(version.strategyId, version);
+    }
+  }
+
+  const items = page.items.map((strategy) => {
+    const latest = latestByStrategy.get(strategy.id);
+    return {
+      ...strategy,
+      latestVersionId: latest?.id,
+      latestVersionNumber: latest?.versionNumber,
+      latestWorkflowState: latest?.workflowState,
+    };
+  });
+
+  return { ok: true, page: { items, nextCursor: page.nextCursor } };
 }

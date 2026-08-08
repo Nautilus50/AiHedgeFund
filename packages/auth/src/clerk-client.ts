@@ -16,6 +16,24 @@ export function createAuthClient(config: ClerkConfig): ReturnType<typeof createC
 }
 
 /**
+ * Clerk's JWT payload is a discriminated union on `v`: legacy tokens (no `v`)
+ * carry the active org id in a flat `org_id` claim, but `v: 2` tokens (what
+ * Clerk actually issues today) nest it under `o.id` instead and type
+ * `org_id` as `never`. Reading only `org_id` silently drops the org on
+ * every current-format token — this extracts whichever shape is present.
+ */
+export function extractOrganisationId(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.org_id === "string") {
+    return payload.org_id;
+  }
+  const nested = payload.o;
+  if (nested && typeof nested === "object" && "id" in nested && typeof nested.id === "string") {
+    return nested.id;
+  }
+  return undefined;
+}
+
+/**
  * Verifies a Clerk session JWT and extracts the two claims this service
  * cares about. Returns undefined on any verification failure — expired,
  * malformed, wrong-audience, or signed by a different Clerk instance —
@@ -27,7 +45,7 @@ export async function verifyClerkToken(token: string, secretKey: string): Promis
     const payload = await verifyToken(token, { secretKey });
     return {
       subject: payload.sub,
-      clerkOrganisationId: typeof payload.org_id === "string" ? payload.org_id : undefined,
+      clerkOrganisationId: extractOrganisationId(payload),
     };
   } catch {
     return undefined;

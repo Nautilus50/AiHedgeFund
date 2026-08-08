@@ -77,5 +77,7 @@ describe.skipIf(!credentials)("report upload (live R2 integration)", () => {
     } finally {
       await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
     }
-  });
+    // 20s: these hit real R2 over the network, where the default 5s budget
+    // is tight enough to flake on a slow round-trip.
+  }, 20_000);
 });

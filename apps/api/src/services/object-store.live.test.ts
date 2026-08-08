@@ -80,5 +80,5 @@ describe.skipIf(!credentials)("object store (live R2 integration)", () => {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
       expect(await objectExists(client, bucket, objectKey)).toBe(false);
     }
-  });
+  }, 20_000);
 });
