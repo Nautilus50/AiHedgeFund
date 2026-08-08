@@ -7,7 +7,7 @@ export interface ObjectStoreConfig {
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
-  region?: string;
+  region?: string | undefined;
 }
 
 /** Cloudflare R2's documented aws-sdk-v3 configuration — region "auto", no forcePathStyle. */

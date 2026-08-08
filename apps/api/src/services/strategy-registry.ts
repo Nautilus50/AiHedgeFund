@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { canonicalHash, generateId, sha256Hex, StrategyDefinition } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import {
@@ -215,4 +215,44 @@ export async function savePineRevision(
   });
 
   return { pineRevisionId, sourceHash, manifestHash };
+}
+
+/** Organisation-scoped fetch — joins through `strategies` so a caller can never read another org's version by guessing an id (CLAUDE.md 19.1). */
+export async function getStrategyVersion(db: Database, organisationId: string, strategyVersionId: string) {
+  const [row] = await db
+    .select({
+      id: strategyVersions.id,
+      strategyId: strategyVersions.strategyId,
+      parentVersionId: strategyVersions.parentVersionId,
+      versionNumber: strategyVersions.versionNumber,
+      workflowState: strategyVersions.workflowState,
+      definitionHash: strategyVersions.definitionHash,
+      pineSourceHash: strategyVersions.pineSourceHash,
+      manifestHash: strategyVersions.manifestHash,
+      changeReason: strategyVersions.changeReason,
+      createdAt: strategyVersions.createdAt,
+    })
+    .from(strategyVersions)
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(and(eq(strategyVersions.id, strategyVersionId), eq(strategies.organisationId, organisationId)))
+    .limit(1);
+
+  return row;
+}
+
+export async function getStrategyLineage(db: Database, organisationId: string, strategyVersionId: string) {
+  return db
+    .select({
+      id: strategyLineage.id,
+      strategyVersionId: strategyLineage.strategyVersionId,
+      parentVersionId: strategyLineage.parentVersionId,
+      changeCategory: strategyLineage.changeCategory,
+      changedFields: strategyLineage.changedFields,
+      motivatingEvidenceIds: strategyLineage.motivatingEvidenceIds,
+      createdAt: strategyLineage.createdAt,
+    })
+    .from(strategyLineage)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, strategyLineage.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(and(eq(strategyLineage.strategyVersionId, strategyVersionId), eq(strategies.organisationId, organisationId)));
 }

@@ -1,7 +1,8 @@
 import type { S3Client } from "@aws-sdk/client-s3";
+import { and, eq } from "drizzle-orm";
 import { generateId, sha256Hex } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { artefacts, reportUploads, tradingviewVerifications } from "@arf-os/db";
+import { artefacts, reportUploads, strategies, strategyVersions, tradingviewVerifications } from "@arf-os/db";
 import { parseListOfTrades, parsePerformanceSummary } from "@arf-os/pine";
 import type { ListOfTradesParseResult, PerformanceSummaryParseResult, TradingViewParseFailure } from "@arf-os/pine";
 import {
@@ -150,4 +151,38 @@ export async function completeReportUpload(
   });
 
   return { artefactId, reportUploadId, parseOutcome };
+}
+
+/**
+ * Organisation-scoped fetch, joined through strategy_versions/strategies
+ * (CLAUDE.md 19.1). Also returns strategyId/campaignId/organisationId so
+ * callers (e.g. the upload-intent route) can build an object-store key
+ * without ever trusting a client-supplied ownership field.
+ */
+export async function getVerification(db: Database, organisationId: string, verificationId: string) {
+  const [row] = await db
+    .select({
+      id: tradingviewVerifications.id,
+      strategyVersionId: tradingviewVerifications.strategyVersionId,
+      strategyId: strategyVersions.strategyId,
+      campaignId: strategies.campaignId,
+      organisationId: strategies.organisationId,
+      status: tradingviewVerifications.status,
+      requiredSymbol: tradingviewVerifications.requiredSymbol,
+      requiredTimeframe: tradingviewVerifications.requiredTimeframe,
+      requestedByUserId: tradingviewVerifications.requestedByUserId,
+      createdAt: tradingviewVerifications.createdAt,
+      completedAt: tradingviewVerifications.completedAt,
+    })
+    .from(tradingviewVerifications)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, tradingviewVerifications.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(and(eq(tradingviewVerifications.id, verificationId), eq(strategies.organisationId, organisationId)))
+    .limit(1);
+
+  return row;
+}
+
+export async function getReportUploadsForVerification(db: Database, verificationId: string) {
+  return db.select().from(reportUploads).where(eq(reportUploads.verificationId, verificationId));
 }
