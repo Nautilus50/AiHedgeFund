@@ -653,4 +653,10 @@ Nothing in this repository is financial advice, an offer to manage money, or a g
 
 ## Licence
 
-A licence has not yet been selected for public release. Until a `LICENSE` file is added, the repository should be treated as proprietary and all rights reserved.
+Released under the MIT Licence — see [`LICENSE`](./LICENSE).
+
+The specification pack (`AI_RESEARCH_HEDGE_FUND_SPEC.md`, `CLAUDE.md`,
+`LEADER_AGENT_SYSTEM_PROMPT.md`, `SPECIALIST_AGENT_PROMPTS.md`,
+`CLAUDE_CODE_BUILD_PROMPT.md`) originates from
+[daviddme/AIHedgeFund](https://github.com/daviddme/AIHedgeFund) and is used
+under that licence, with its copyright notice retained.
