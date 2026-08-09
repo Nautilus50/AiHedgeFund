@@ -16,11 +16,19 @@ export const MetricScope = z.enum([
 ]);
 export type MetricScope = z.infer<typeof MetricScope>;
 
+/**
+ * Duration units are deliberately distinct: a metric measured in hours must
+ * never be labelled `days` (CLAUDE.md 14 — "Explicit units"; 7.4 — include
+ * units wherever ambiguity exists).
+ */
+export const MetricUnit = z.enum(["currency", "percent", "ratio", "count", "hours", "days", "bars"]);
+export type MetricUnit = z.infer<typeof MetricUnit>;
+
 export const MetricSnapshot = z.object({
   id: z.string().uuid(),
   metricName: z.string().min(1),
   value: z.number(),
-  unit: z.enum(["currency", "percent", "ratio", "count", "days", "bars"]),
+  unit: MetricUnit,
   calculationVersion: z.string().min(1),
   scopeType: MetricScope,
   scopeId: z.string().uuid(),

@@ -130,6 +130,9 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@arf-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@arf-os/event-bus':
         specifier: workspace:*
         version: link:../../packages/event-bus
@@ -139,6 +142,12 @@ importers:
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      bullmq:
+        specifier: ^5.34.1
+        version: 5.81.3(supports-color@7.2.0)
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -161,6 +170,9 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@arf-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@arf-os/event-bus':
         specifier: workspace:*
         version: link:../../packages/event-bus
@@ -217,12 +229,21 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@arf-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@arf-os/event-bus':
         specifier: workspace:*
         version: link:../../packages/event-bus
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      bullmq:
+        specifier: ^5.34.1
+        version: 5.81.3(supports-color@7.2.0)
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -242,6 +263,9 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../contracts
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.2
@@ -328,9 +352,18 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@arf-os/db':
+        specifier: workspace:*
+        version: link:../db
       bullmq:
         specifier: ^5.34.1
         version: 5.81.3(supports-color@7.2.0)
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.2

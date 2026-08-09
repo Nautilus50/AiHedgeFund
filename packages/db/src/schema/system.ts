@@ -1,6 +1,12 @@
 import { jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-export const outboxStatusEnum = pgEnum("outbox_status", ["PENDING", "PUBLISHED", "FAILED"]);
+/**
+ * PUBLISHING is the claimed-but-not-yet-confirmed state. Without it, a
+ * relay's `FOR UPDATE SKIP LOCKED` claim would release the moment its
+ * statement commits, letting a second relay re-claim and double-publish the
+ * same rows while the first is still mid-flight.
+ */
+export const outboxStatusEnum = pgEnum("outbox_status", ["PENDING", "PUBLISHING", "PUBLISHED", "FAILED"]);
 
 /**
  * Transactional outbox (CLAUDE.md 9.3 / spec 14.9): domain events are

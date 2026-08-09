@@ -1,1 +1,73 @@
-console.log("[worker-analytics] placeholder worker started — awaiting Milestone 12 wiring");
+import { Worker } from "bullmq";
+import { createDatabase } from "@arf-os/db";
+import {
+  EquityReconstructionJob,
+  MetricCalculationJob,
+  QUEUE_NAMES,
+  parseRedisUrl,
+} from "@arf-os/event-bus";
+import { createLogger } from "@arf-os/observability";
+import { handleEquityReconstruction, handleMetricCalculation, markRunAnalysed } from "./handlers.js";
+
+try {
+  process.loadEnvFile();
+} catch {
+  // No .env file — expected in production where env vars are injected directly.
+}
+
+const logger = createLogger("worker-analytics");
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+async function main() {
+  const db = createDatabase(requireEnv("DATABASE_URL"));
+  const connection = parseRedisUrl(requireEnv("REDIS_URL"));
+
+  const equityWorker = new Worker(
+    QUEUE_NAMES.equityReconstruction,
+    async (job) => {
+      const input = EquityReconstructionJob.parse(job.data);
+      const result = await handleEquityReconstruction(db, input);
+      logger.info({ jobId: job.id, backtestRunId: input.backtestRunId, ...result }, "equity reconstructed");
+      return result;
+    },
+    { connection },
+  );
+
+  const metricsWorker = new Worker(
+    QUEUE_NAMES.metricCalculation,
+    async (job) => {
+      const input = MetricCalculationJob.parse(job.data);
+      const result = await handleMetricCalculation(db, input);
+      await markRunAnalysed(db, input.backtestRunId);
+      logger.info({ jobId: job.id, backtestRunId: input.backtestRunId, ...result }, "metrics calculated");
+      return result;
+    },
+    { connection },
+  );
+
+  for (const worker of [equityWorker, metricsWorker]) {
+    worker.on("failed", (job, error) => {
+      logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
+    });
+  }
+
+  logger.info({ queues: [QUEUE_NAMES.equityReconstruction, QUEUE_NAMES.metricCalculation] }, "worker started");
+
+  const shutdown = async () => {
+    logger.info("shutting down");
+    await Promise.all([equityWorker.close(), metricsWorker.close()]);
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
+}
+
+main().catch((error: unknown) => {
+  logger.error({ err: error }, "worker failed to start");
+  process.exit(1);
+});

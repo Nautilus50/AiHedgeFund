@@ -13,9 +13,12 @@
   },
   "dependencies": {
     "@arf-os/contracts": "workspace:*",
+    "@arf-os/db": "workspace:*",
     "@arf-os/event-bus": "workspace:*",
     "@arf-os/metrics": "workspace:*",
-    "@arf-os/observability": "workspace:*"
+    "@arf-os/observability": "workspace:*",
+    "bullmq": "^5.34.1",
+    "drizzle-orm": "^0.38.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
