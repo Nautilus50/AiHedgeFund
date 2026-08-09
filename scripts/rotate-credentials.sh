@@ -41,12 +41,32 @@ set_env_var() {
   echo "  updated ${key} in ${file}"
 }
 
+# Reads a secret without echoing it, then confirms what was captured by
+# length and masked prefix only. Hidden input gives no feedback, which
+# invites pasting twice — so duplication is detected explicitly rather than
+# silently written to the file.
 read_secret() {
   local prompt="$1" __var="$2" value
   printf '%s: ' "$prompt" >&2
   read -rs value
   printf '\n' >&2
-  [ -n "$value" ] || { echo "empty value, aborting" >&2; exit 1; }
+
+  [ -n "$value" ] || { echo "  empty value, aborting" >&2; exit 1; }
+
+  case "$value" in
+    *[[:space:]]*) echo "  value contains whitespace — likely a bad paste, aborting" >&2; exit 1;;
+  esac
+
+  # A key pasted N times shows its prefix N times. Catch it rather than
+  # writing a value that fails authentication later for no obvious reason.
+  local prefix="${value:0:7}" occurrences
+  occurrences=$(printf '%s' "$value" | grep -o "$prefix" | wc -l)
+  if [ "$occurrences" -gt 1 ]; then
+    echo "  value appears to repeat ${occurrences}x — paste registered more than once, aborting" >&2
+    exit 1
+  fi
+
+  printf '  captured %s…  (%d chars)\n' "${value:0:8}" "${#value}" >&2
   printf -v "$__var" '%s' "$value"
 }
 
