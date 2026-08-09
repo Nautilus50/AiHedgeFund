@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { apiFetchSafe } from "../../../lib/api";
+import { StateBadge } from "../../../components/Badge";
+import { Alert, Card, CardBody, CardHead, EmptyState, Hash, Timestamp } from "../../../components/primitives";
 import { DecisionForm, RequestVerificationForm, SaveDefinitionForm, SavePineForm } from "./StrategyForms";
 
 interface StrategyVersionDetail {
@@ -10,6 +12,7 @@ interface StrategyVersionDetail {
   workflowState: string;
   definitionHash: string | null;
   pineSourceHash: string | null;
+  manifestHash: string | null;
   changeReason: string | null;
   createdAt: string;
 }
@@ -29,6 +32,8 @@ interface AuditEvent {
   createdAt: string;
 }
 
+const TERMINAL_STATES = new Set(["PAPER_APPROVED", "REJECTED"]);
+
 export default async function StrategyVersionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -40,81 +45,201 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
 
   if ("error" in versionResult) {
     return (
-      <main>
-        <p role="alert">Could not load strategy version: {versionResult.error.message}</p>
-      </main>
+      <>
+        <Link href="/" className="breadcrumb">
+          ← Command Centre
+        </Link>
+        <Alert tone="error">Could not load strategy version. {versionResult.error.message}</Alert>
+      </>
     );
   }
 
   const version = versionResult.data;
+  const isTerminal = TERMINAL_STATES.has(version.workflowState);
+  const hasDefinition = Boolean(version.definitionHash);
+  const hasPine = Boolean(version.pineSourceHash);
 
   return (
-    <main>
-      <p>
-        <Link href="/">← Command Centre</Link>
-      </p>
-      <h1>
-        Strategy Version v{version.versionNumber} — {version.workflowState}
-      </h1>
-      <dl>
-        <dt>Definition hash</dt>
-        <dd>{version.definitionHash ?? "not set"}</dd>
-        <dt>Pine source hash</dt>
-        <dd>{version.pineSourceHash ?? "not set"}</dd>
-        <dt>Created</dt>
-        <dd>{new Date(version.createdAt).toLocaleString()}</dd>
-      </dl>
+    <>
+      <Link href="/" className="breadcrumb">
+        ← Command Centre
+      </Link>
 
-      <section>
-        <h2>Lineage</h2>
+      <div className="page-head">
+        <div className="page-title-group">
+          <div className="row">
+            <h1>Strategy version v{version.versionNumber}</h1>
+            <StateBadge state={version.workflowState} />
+          </div>
+          <p className="page-subtitle">
+            Tested versions are immutable — any material change creates a child version.
+          </p>
+        </div>
+      </div>
+
+      {isTerminal && (
+        <Alert tone={version.workflowState === "PAPER_APPROVED" ? "ok" : "warn"}>
+          This version has reached a terminal state. It can no longer be edited or transitioned;
+          continuing this line of research means creating a child version.
+        </Alert>
+      )}
+
+      <Card>
+        <CardHead title="Artefact identity" hint="Content hashes are what make a result reproducible." />
+        <CardBody>
+          <dl className="dl">
+            <dt>Definition hash</dt>
+            <dd>
+              <Hash value={version.definitionHash} />
+            </dd>
+            <dt>Pine source hash</dt>
+            <dd>
+              <Hash value={version.pineSourceHash} />
+            </dd>
+            <dt>Manifest hash</dt>
+            <dd>
+              <Hash value={version.manifestHash} />
+            </dd>
+            <dt>Created</dt>
+            <dd>
+              <Timestamp value={version.createdAt} />
+            </dd>
+            {version.changeReason && (
+              <>
+                <dt>Change reason</dt>
+                <dd>{version.changeReason}</dd>
+              </>
+            )}
+          </dl>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHead title="Lineage" />
         {"error" in lineageResult ? (
-          <p role="alert">Could not load lineage: {lineageResult.error.message}</p>
+          <CardBody>
+            <Alert tone="error">Could not load lineage. {lineageResult.error.message}</Alert>
+          </CardBody>
         ) : lineageResult.data.length === 0 ? (
-          <p>Root version — no parent.</p>
+          <EmptyState title="Root version">This version has no parent.</EmptyState>
         ) : (
-          <ul>
-            {lineageResult.data.map((entry) => (
-              <li key={entry.id}>
-                {entry.changeCategory} from <Link href={`/strategy-versions/${entry.parentVersionId}`}>{entry.parentVersionId}</Link>
-              </li>
-            ))}
-          </ul>
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Change</th>
+                    <th>Parent version</th>
+                    <th>Recorded (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineageResult.data.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{entry.changeCategory}</td>
+                      <td>
+                        <Link className="mono" href={`/strategy-versions/${entry.parentVersionId}`}>
+                          {entry.parentVersionId.slice(0, 8)}…
+                        </Link>
+                      </td>
+                      <td>
+                        <Timestamp value={entry.createdAt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
         )}
-      </section>
+      </Card>
 
-      <section>
-        <SaveDefinitionForm strategyVersionId={id} />
-      </section>
+      {!isTerminal && (
+        <>
+          <Card>
+            <CardHead
+              title="Strategy Definition (SDL)"
+              hint="Stored once per version. Editing a tested version is not possible — create a child instead."
+            />
+            <CardBody>
+              <SaveDefinitionForm strategyVersionId={id} alreadySet={hasDefinition} />
+            </CardBody>
+          </Card>
 
-      <section>
-        <SavePineForm strategyVersionId={id} />
-      </section>
+          <Card>
+            <CardHead title="Pine Script revision" hint="Source is hashed verbatim; reformatting is a different revision." />
+            <CardBody>
+              <SavePineForm strategyVersionId={id} alreadySet={hasPine} />
+            </CardBody>
+          </Card>
 
-      <section>
-        <RequestVerificationForm strategyVersionId={id} />
-      </section>
+          <Card>
+            <CardHead
+              title="TradingView verification"
+              hint="TradingView is the acceptance environment — results are ingested as CSV, never screenshots."
+            />
+            <CardBody>
+              <RequestVerificationForm strategyVersionId={id} />
+            </CardBody>
+          </Card>
 
-      <section>
-        <DecisionForm strategyVersionId={id} />
-      </section>
+          <Card>
+            <CardHead
+              title="Committee decision"
+              hint="Both the strongest positive and the strongest rejection case are mandatory, including for approvals."
+            />
+            <CardBody>
+              <DecisionForm
+                strategyVersionId={id}
+                versionNumber={version.versionNumber}
+                workflowState={version.workflowState}
+                hasDefinition={hasDefinition}
+                hasPine={hasPine}
+              />
+            </CardBody>
+          </Card>
+        </>
+      )}
 
-      <section>
-        <h2>Audit timeline</h2>
+      <Card>
+        <CardHead title="Audit timeline" hint="Append-only. Every transition, decision, and override is recorded." />
         {"error" in auditResult ? (
-          <p role="alert">Could not load audit timeline: {auditResult.error.message}</p>
+          <CardBody>
+            <Alert tone="error">Could not load audit timeline. {auditResult.error.message}</Alert>
+          </CardBody>
         ) : auditResult.data.length === 0 ? (
-          <p>No audit events yet.</p>
+          <EmptyState title="No audit events yet">
+            Events appear here once this version is transitioned or decided upon.
+          </EmptyState>
         ) : (
-          <ul>
-            {auditResult.data.map((event) => (
-              <li key={event.id}>
-                {new Date(event.createdAt).toLocaleString()} — {event.action} by {event.actor}
-                {event.reason ? `: ${event.reason}` : ""}
-              </li>
-            ))}
-          </ul>
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>When (UTC)</th>
+                    <th>Action</th>
+                    <th>Actor</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditResult.data.map((event) => (
+                    <tr key={event.id}>
+                      <td>
+                        <Timestamp value={event.createdAt} />
+                      </td>
+                      <td className="mono">{event.action}</td>
+                      <td className="mono">{event.actor.slice(0, 8)}…</td>
+                      <td>{event.reason ?? <span className="unset">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
         )}
-      </section>
-    </main>
+      </Card>
+    </>
   );
 }

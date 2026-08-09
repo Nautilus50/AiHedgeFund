@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { apiFetchSafe } from "../../../lib/api";
+import { StateBadge } from "../../../components/Badge";
+import { Alert, Card, CardBody, CardHead, EmptyState, Timestamp } from "../../../components/primitives";
 import { NewStrategyForm } from "./NewStrategyForm";
 
 interface CampaignDetail {
@@ -33,50 +35,107 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
   if ("error" in campaignResult) {
     return (
-      <main>
-        <p role="alert">Could not load campaign: {campaignResult.error.message}</p>
-      </main>
+      <>
+        <Link href="/" className="breadcrumb">
+          ← Command Centre
+        </Link>
+        <Alert tone="error">Could not load campaign. {campaignResult.error.message}</Alert>
+      </>
     );
   }
 
   const campaign = campaignResult.data;
+  const markets = Array.isArray(campaign.allowedMarkets) ? campaign.allowedMarkets : [];
 
   return (
-    <main>
-      <p>
-        <Link href="/">← Command Centre</Link>
-      </p>
-      <h1>{campaign.name}</h1>
-      <p>
-        <strong>Status:</strong> {campaign.status}
-      </p>
-      <p>{campaign.brief}</p>
-      <p>
-        <strong>Markets:</strong> {campaign.allowedMarkets.join(", ")}
-      </p>
+    <>
+      <Link href="/" className="breadcrumb">
+        ← Command Centre
+      </Link>
 
-      <h2>Strategies</h2>
-      {"error" in strategiesResult ? (
-        <p role="alert">Could not load strategies: {strategiesResult.error.message}</p>
-      ) : strategiesResult.data.items.length === 0 ? (
-        <p>No strategies yet.</p>
-      ) : (
-        <ul>
-          {strategiesResult.data.items.map((strategy) => (
-            <li key={strategy.id}>
-              {strategy.latestVersionId ? (
-                <Link href={`/strategy-versions/${strategy.latestVersionId}`}>
-                  {strategy.name} (v{strategy.latestVersionNumber}, {strategy.latestWorkflowState})
-                </Link>
-              ) : (
-                strategy.name
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="page-head">
+        <div className="page-title-group">
+          <div className="row">
+            <h1>{campaign.name}</h1>
+            <StateBadge state={campaign.status} kind="campaign" />
+          </div>
+          <p className="page-subtitle">{campaign.brief}</p>
+        </div>
+      </div>
 
-      <NewStrategyForm campaignId={id} />
-    </main>
+      <Card>
+        <CardHead title="Campaign" />
+        <CardBody>
+          <dl className="dl">
+            <dt>Allowed markets</dt>
+            <dd>{markets.length > 0 ? markets.join(", ") : <span className="unset">none specified</span>}</dd>
+            <dt>Created</dt>
+            <dd>
+              <Timestamp value={campaign.createdAt} />
+            </dd>
+          </dl>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Strategies"
+          hint="Each row shows its most recent immutable version and where that version sits in the lifecycle."
+        />
+        {"error" in strategiesResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load strategies. {strategiesResult.error.message}</Alert>
+          </CardBody>
+        ) : strategiesResult.data.items.length === 0 ? (
+          <EmptyState title="No strategies yet">
+            Create one below to begin the definition, Pine, and verification chain.
+          </EmptyState>
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Strategy</th>
+                    <th>Latest version</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {strategiesResult.data.items.map((strategy) => (
+                    <tr key={strategy.id}>
+                      <td>
+                        {strategy.latestVersionId ? (
+                          <Link href={`/strategy-versions/${strategy.latestVersionId}`}>{strategy.name}</Link>
+                        ) : (
+                          strategy.name
+                        )}
+                      </td>
+                      <td className="num">
+                        {strategy.latestVersionNumber ? `v${strategy.latestVersionNumber}` : "—"}
+                      </td>
+                      <td>
+                        {strategy.latestWorkflowState ? (
+                          <StateBadge state={strategy.latestWorkflowState} />
+                        ) : (
+                          <span className="unset">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead title="New strategy" hint="Creates the strategy and its first immutable version." />
+        <CardBody>
+          <NewStrategyForm campaignId={id} />
+        </CardBody>
+      </Card>
+    </>
   );
 }

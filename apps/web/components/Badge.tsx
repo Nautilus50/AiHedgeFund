@@ -1,0 +1,86 @@
+import type { ReactNode } from "react";
+
+export type BadgeTone = "neutral" | "info" | "ok" | "warn" | "danger";
+
+/**
+ * Every tone carries a glyph as well as a colour. Spec 15.17 requires
+ * non-colour status indicators, so the meaning has to survive greyscale
+ * printing, colour-blindness, and poor displays.
+ */
+const GLYPH: Record<BadgeTone, string> = {
+  neutral: "○",
+  info: "◐",
+  ok: "●",
+  warn: "▲",
+  danger: "✕",
+};
+
+export function Badge({ tone, children }: { tone: BadgeTone; children: ReactNode }) {
+  return (
+    <span className={`badge badge-${tone}`}>
+      <span className="badge-glyph" aria-hidden="true">
+        {GLYPH[tone]}
+      </span>
+      {children}
+    </span>
+  );
+}
+
+/** Workflow lifecycle states, mapped to a tone by where they sit in the funnel. */
+const WORKFLOW_TONE: Record<string, BadgeTone> = {
+  CAMPAIGN_BACKLOG: "neutral",
+  IDEA_RESEARCH: "neutral",
+  HYPOTHESIS_DRAFT: "neutral",
+  PINE_DEVELOPMENT: "info",
+  TRADINGVIEW_VERIFICATION: "info",
+  PAPER_APPROVAL_REVIEW: "info",
+  PAPER_APPROVED: "ok",
+  REJECTED: "danger",
+  BLOCKED: "warn",
+};
+
+const CAMPAIGN_TONE: Record<string, BadgeTone> = {
+  DRAFT: "neutral",
+  ACTIVE: "info",
+  PAUSED: "warn",
+  CANCELLED: "danger",
+  COMPLETED: "ok",
+};
+
+const PARSE_TONE: Record<string, BadgeTone> = {
+  PENDING: "neutral",
+  PARSED: "ok",
+  FAILED: "danger",
+};
+
+const VERIFICATION_TONE: Record<string, BadgeTone> = {
+  PENDING: "neutral",
+  UPLOADED: "info",
+  PARSED: "info",
+  PASSED: "ok",
+  FAILED: "danger",
+  INVESTIGATION_REQUIRED: "warn",
+};
+
+function humanise(state: string): string {
+  return state.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+}
+
+export function StateBadge({
+  state,
+  kind = "workflow",
+}: {
+  state: string;
+  kind?: "workflow" | "campaign" | "parse" | "verification";
+}) {
+  const map =
+    kind === "campaign"
+      ? CAMPAIGN_TONE
+      : kind === "parse"
+        ? PARSE_TONE
+        : kind === "verification"
+          ? VERIFICATION_TONE
+          : WORKFLOW_TONE;
+
+  return <Badge tone={map[state] ?? "neutral"}>{humanise(state)}</Badge>;
+}

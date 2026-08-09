@@ -23,7 +23,9 @@ test.describe("authentication boundary", () => {
       await expect(page.getByText(/sign in/i).first()).toBeVisible({ timeout: 20_000 });
 
       // The console must not have rendered behind the redirect.
-      await expect(page.getByRole("heading", { name: /ARF-OS Command Centre/i })).toHaveCount(0);
+      // Must match the real h1 exactly — an assertion for text that never
+      // exists would pass vacuously and prove nothing.
+      await expect(page.getByRole("heading", { name: /^Command Centre$/i })).toHaveCount(0);
     });
   }
 

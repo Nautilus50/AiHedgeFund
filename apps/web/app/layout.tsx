@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { ClerkProvider, OrganizationSwitcher, SignedIn, UserButton } from "@clerk/nextjs";
+import "./globals.css";
 
 export const metadata = {
   title: "ARF-OS",
@@ -11,18 +13,25 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <ClerkProvider>
       <html lang="en">
         <body>
-          <header>
-            <SignedIn>
-              <OrganizationSwitcher
-                hidePersonal
-                createOrganizationMode="modal"
-                afterCreateOrganizationUrl="/"
-                afterSelectOrganizationUrl="/"
-              />
-              <UserButton />
-            </SignedIn>
-          </header>
-          {children}
+          <SignedIn>
+            <header className="app-header">
+              <Link href="/" className="app-brand">
+                ARF-OS
+                <span className="app-brand-mark">research console</span>
+              </Link>
+              <div className="app-header-spacer" />
+              <div className="app-header-actions">
+                <OrganizationSwitcher
+                  hidePersonal
+                  createOrganizationMode="modal"
+                  afterCreateOrganizationUrl="/"
+                  afterSelectOrganizationUrl="/"
+                />
+                <UserButton />
+              </div>
+            </header>
+          </SignedIn>
+          <main className="app-main">{children}</main>
         </body>
       </html>
     </ClerkProvider>
