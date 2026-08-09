@@ -62,6 +62,36 @@ From Cloudflare R2 → Manage API tokens → Create Account API token, with
 - `OBJECT_STORE_SECRET_ACCESS_KEY`
 - `OBJECT_STORE_REGION` — `auto`
 
+Scope the token to **this bucket only** rather than all buckets — the app
+never touches another.
+
+#### Bucket CORS policy — required, and easy to miss
+
+Uploads go browser → object storage directly via a presigned URL
+([ADR 0002](adr/0002-object-storage.md)), so the **browser** enforces CORS on
+that request. Without a policy the upload fails with an opaque
+`Failed to fetch`, while every test still passes — Node's `fetch` ignores
+CORS, so the test suite cannot catch this.
+
+In Cloudflare: R2 → your bucket → **Settings** → **CORS Policy** → Add:
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:3000"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Add each deployed origin to `AllowedOrigins` as it appears. Do not use `"*"` —
+any site could then drive uploads with a leaked presigned URL.
+
+This has to be done in the dashboard: an Object Read & Write token gets
+`AccessDenied` on `PutBucketCors`.
+
 ## 4. Migrate
 
 ```bash
@@ -106,6 +136,23 @@ pnpm --filter @arf-os/worker-analytics dev # metrics + equity
 
 The outbox relay must be running for any background work to flow — see
 [ADR 0001](adr/0001-queue-technology.md).
+
+## Verify the setup
+
+```bash
+./scripts/verify-credentials.sh
+```
+
+Checks that the object store is reachable, that its **CORS policy actually
+permits a browser `PUT`** from your web origin, and that the Clerk secret is
+accepted. Reports pass/fail only — never a credential value.
+
+The CORS check issues a real preflight, so it catches the one misconfiguration
+the test suite cannot. Override the origin it checks with `WEB_ORIGIN`:
+
+```bash
+WEB_ORIGIN=https://your-deployed-app.example ./scripts/verify-credentials.sh
+```
 
 ## Testing
 

@@ -28,6 +28,34 @@ c.send(new ListObjectsV2Command({ Bucket: process.env.OBJECT_STORE_BUCKET }))
  .catch((e) => { console.error("  FAIL — " + e.name + ": " + e.message); process.exit(1); });
 ' 2>&1; then :; else fail=1; fi
 
+echo "== Object storage CORS =="
+# A missing CORS policy breaks browser uploads while every test still passes,
+# because Node's fetch ignores CORS. Probe it with a real preflight instead.
+if node -e '
+process.loadEnvFile("apps/api/.env");
+const origin = process.env.WEB_ORIGIN || "http://localhost:3000";
+const endpoint = process.env.OBJECT_STORE_ENDPOINT, bucket = process.env.OBJECT_STORE_BUCKET;
+if (!endpoint || !bucket) { console.error("  skipped — storage not configured"); process.exit(0); }
+const host = new URL(endpoint).host;
+fetch(`https://${bucket}.${host}/cors-probe`, {
+  method: "OPTIONS",
+  headers: {
+    Origin: origin,
+    "Access-Control-Request-Method": "PUT",
+    "Access-Control-Request-Headers": "content-type",
+  },
+}).then((r) => {
+  const allow = r.headers.get("access-control-allow-origin");
+  if (allow) { console.log(`  OK — preflight allows ${origin} (allow-origin: ${allow})`); }
+  else {
+    console.error(`  FAIL — no access-control-allow-origin for ${origin} (HTTP ${r.status}).`);
+    console.error("         Browser uploads will fail with \"Failed to fetch\".");
+    console.error("         See docs/local-setup.md -> Bucket CORS policy.");
+    process.exit(1);
+  }
+}).catch((e) => { console.error("  FAIL — " + e.message); process.exit(1); });
+' 2>&1; then :; else fail=1; fi
+
 echo "== Clerk =="
 if node -e '
 process.loadEnvFile("apps/api/.env");
