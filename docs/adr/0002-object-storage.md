@@ -65,6 +65,13 @@ lands in another tenant's prefix.
   extra round trip per upload. That is the price of not trusting the client.
 - Local development requires real R2 credentials. Integration tests skip
   automatically when `OBJECT_STORE_*` is unset rather than failing.
+- **The bucket needs a CORS policy for browser uploads to work at all.**
+  Because the `PUT` goes browser → R2 rather than through our API, the
+  browser enforces CORS on it. This is invisible to the test suite: Node's
+  `fetch` ignores CORS, so the integration tests pass against a bucket whose
+  policy would block every real user. Found only by driving an actual
+  browser. See [troubleshooting](../troubleshooting.md) for the minimal
+  policy; note it cannot be set with an Object Read & Write token.
 
 ## Security implications
 

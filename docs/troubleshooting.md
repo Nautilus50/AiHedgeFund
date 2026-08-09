@@ -124,6 +124,37 @@ one. `deterministicJobId` uses `__`. If you add an id-building helper, keep it
 
 ## Object storage
 
+### Browser upload fails with "Failed to fetch" (CORS)
+
+The presigned URL is issued fine, but the browser's `PUT` straight to R2 is
+blocked because the bucket has no CORS policy. Symptom: the API call to
+`/uploads` returns 200, and the subsequent `PUT` throws `Failed to fetch`
+with nothing useful in the console.
+
+Node-based tests do **not** reproduce this — `fetch` in Node ignores CORS, so
+the integration suite passes while the real UI fails. Only a browser catches it.
+
+Fix it in the Cloudflare dashboard: R2 → your bucket → **Settings** → **CORS
+Policy** → Add, with the minimum this flow needs:
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:3000"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Add the deployed origin alongside localhost when there is one. Do not use
+`"*"` for origins — any site could then drive uploads with a leaked URL.
+
+An Object Read & Write API token cannot set this (`AccessDenied` on
+`GetBucketCors`/`PutBucketCors`); it requires dashboard access or an Admin
+token.
+
 ### Uploads fail with 403
 
 Presigned URLs expire after 15 minutes and are bound to one key *and* content

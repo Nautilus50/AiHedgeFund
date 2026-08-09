@@ -541,6 +541,10 @@ Honest gaps in what is built, beyond the "not started" rows above:
 
 - **Organisation provisioning is manual.** Linking a Clerk organisation to a
   local one needs a one-off SQL insert ([local setup](docs/local-setup.md)).
+- **Browser uploads need a CORS policy on the bucket**, which must be set in
+  the storage provider's dashboard. Without it the presigned `PUT` is blocked
+  by the browser even though every test passes — Node's `fetch` does not
+  enforce CORS. See [troubleshooting](docs/troubleshooting.md).
 - **Parity reports are not persisted.** The comparison logic exists and is
   tested, but no worker writes `parity_reports` yet.
 - **Abandoned uploads are not reaped.** A presigned URL used without calling
