@@ -14,7 +14,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "test:integration": "turbo run test:integration",
+    "test:integration": "turbo run test:integration --concurrency=1",
     "test:e2e": "turbo run test:e2e",
     "db:generate": "pnpm --filter @arf-os/db db:generate",
     "db:migrate": "pnpm --filter @arf-os/db db:migrate",

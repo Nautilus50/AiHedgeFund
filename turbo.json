@@ -20,7 +20,13 @@
       "dependsOn": ["^build"]
     },
     "test:integration": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      // Never cached: these assert against live Postgres/Redis/R2 state,
+      // which turbo's input hashing cannot see. Run them via the root
+      // `pnpm test:integration`, which pins --concurrency=1 — every package's
+      // suite truncates the same test database, so running them in parallel
+      // makes them wipe each other's fixtures mid-test.
+      "cache": false
     },
     "test:e2e": {
       "dependsOn": ["build"]
