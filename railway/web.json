@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "pnpm install --frozen-lockfile && pnpm exec turbo run build --filter=@arf-os/web...",
+    "watchPatterns": ["apps/web/**", "packages/**", "pnpm-lock.yaml", "package.json", "turbo.json"]
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @arf-os/web exec next start -p $PORT",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
