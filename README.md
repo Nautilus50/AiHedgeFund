@@ -435,6 +435,43 @@ The orchestration state machine belongs to ARF-OS. Core research governance shou
 
 ---
 
+## Implementation documentation
+
+The files above describe the intended system. These describe what is actually
+built and how to run it.
+
+| Document | Purpose |
+|---|---|
+| [`docs/local-setup.md`](./docs/local-setup.md) | Getting it running locally, including Clerk and object storage |
+| [`docs/architecture.md`](./docs/architecture.md) | Runtime shape, the evidence chain, and design rules |
+| [`docs/database.md`](./docs/database.md) | Schema, transactional boundaries, migrations |
+| [`docs/report-parsers.md`](./docs/report-parsers.md) | TradingView CSV parsing, locale handling, fixtures |
+| [`docs/api-examples.md`](./docs/api-examples.md) | Worked `curl` examples for every endpoint |
+| [`docs/troubleshooting.md`](./docs/troubleshooting.md) | Failures actually encountered, and what they mean |
+
+### Architecture decisions
+
+| ADR | Decision |
+|---|---|
+| [0001](./docs/adr/0001-queue-technology.md) | Redis + BullMQ with a transactional outbox |
+| [0002](./docs/adr/0002-object-storage.md) | S3-compatible storage with presigned uploads |
+| [0003](./docs/adr/0003-workflow-engine.md) | A first-party state machine, not a framework |
+| [0004](./docs/adr/0004-tradingview-verification.md) | Human-assisted verification, not browser automation |
+
+### Quick start
+
+```bash
+pnpm install
+docker compose -f infra/docker/docker-compose.yml up -d
+pnpm db:migrate
+pnpm dev
+```
+
+Full instructions, including the Clerk and object-storage configuration this
+needs, are in [`docs/local-setup.md`](./docs/local-setup.md).
+
+---
+
 ## First implementation milestone
 
 The first vertical slice should prove the full evidence chain before autonomous scale is added.
@@ -470,12 +507,51 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Initial JSON schemas | Complete |
 | Repository engineering policy | Complete |
 | MVP vertical-slice build prompt | Complete |
-| Application monorepo | Not started |
-| TradingView CSV ingestion | Not started |
-| Strategy registry and UI | Not started |
-| Multi-agent runtime | Not started |
+| Application monorepo | Built — 6 apps, 11 packages |
+| Contracts, database, migrations | Built |
+| Auth and organisation boundary | Built (Clerk, organisation-scoped) |
+| Workflow engine and audit | Built |
+| Strategy registry | Built (immutable versions, lineage, SDL, Pine revisions) |
+| Object storage and presigned uploads | Built (S3-compatible) |
+| TradingView CSV ingestion | Built (both export variants, versioned parsers) |
+| Independent metrics, equity, drawdown, parity | Built |
+| API endpoints | Built (campaigns, strategies, verifications, decisions, audit) |
+| Frontend screens | Built — minimal, unstyled |
+| Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
+| Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
+| Local Pine runner (`backtest-sdk`) | Not started |
 | Forward-test paper engine | Not started |
+| Validation lab, practice arena, portfolio research | Not started |
 | Live execution | Intentionally out of scope |
+
+### Verification status
+
+Everything above was exercised against real infrastructure, not mocks:
+Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
+instance.
+
+- 152 unit tests, 30 integration tests, 7 end-to-end tests
+- The analytics chain was driven end to end — outbox row → relay → BullMQ →
+  worker → Postgres — against a trade ledger whose metrics were hand-calculated
+  first; every persisted value matched
+
+### Known limitations
+
+Honest gaps in what is built, beyond the "not started" rows above:
+
+- **Organisation provisioning is manual.** Linking a Clerk organisation to a
+  local one needs a one-off SQL insert ([local setup](docs/local-setup.md)).
+- **Parity reports are not persisted.** The comparison logic exists and is
+  tested, but no worker writes `parity_reports` yet.
+- **Abandoned uploads are not reaped.** A presigned URL used without calling
+  complete leaves an orphaned object.
+- **No indexes beyond keys and unique constraints.** Query patterns are known
+  but unmeasured; CLAUDE.md 9.2 says index real patterns, not speculation.
+- **The frontend is functional, not designed.** Unstyled forms and tables; no
+  charts, and none of the evidence-labelling rules in spec 15 are implemented
+  in the UI yet.
+- **The R2 token is account-scoped**, not bucket-scoped — worth tightening
+  before any non-development use.
 
 ---
 
