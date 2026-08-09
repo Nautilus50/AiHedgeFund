@@ -77,9 +77,9 @@ lands in another tenant's prefix.
 
 - Presigned URLs are time-limited (15 minutes by default) and scoped to a
   single object key and content type.
-- The R2 API token is scoped to Object Read & Write, not Admin. It currently
-  applies to all buckets in the account; scoping it to a single bucket is a
-  known tightening to make before any non-development use.
+- The API token is scoped to Object Read & Write on a single bucket, not
+  Admin and not account-wide. That is deliberately narrow enough that it
+  cannot configure the bucket's own CORS policy — see Consequences below.
 - Object keys are organisation-prefixed, and the prefix is server-derived, so
   the storage layout enforces the same tenant boundary as the database.
 - Credentials live only in environment variables and are redacted from logs by

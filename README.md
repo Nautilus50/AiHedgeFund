@@ -544,7 +544,9 @@ Honest gaps in what is built, beyond the "not started" rows above:
 - **Browser uploads need a CORS policy on the bucket**, which must be set in
   the storage provider's dashboard. Without it the presigned `PUT` is blocked
   by the browser even though every test passes — Node's `fetch` does not
-  enforce CORS. See [troubleshooting](docs/troubleshooting.md).
+  enforce CORS, so no suite can catch it. `./scripts/verify-credentials.sh`
+  issues a real preflight and fails loudly when the policy is missing; the
+  required JSON is in [local setup](docs/local-setup.md).
 - **Parity reports are not persisted.** The comparison logic exists and is
   tested, but no worker writes `parity_reports` yet.
 - **Abandoned uploads are not reaped.** A presigned URL used without calling
@@ -554,8 +556,6 @@ Honest gaps in what is built, beyond the "not started" rows above:
 - **The frontend is functional, not designed.** Unstyled forms and tables; no
   charts, and none of the evidence-labelling rules in spec 15 are implemented
   in the UI yet.
-- **The R2 token is account-scoped**, not bucket-scoped — worth tightening
-  before any non-development use.
 
 ---
 
