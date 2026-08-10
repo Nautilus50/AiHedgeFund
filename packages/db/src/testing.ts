@@ -1,22 +1,81 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { createDatabase, type Database } from "./client.js";
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? "postgres://arf:arf@localhost:5432/arf_os_test";
 
+/** Resolves from both `src/` and the built `dist/`, which are siblings of `drizzle/`. */
+const JOURNAL_PATH = join(dirname(fileURLToPath(import.meta.url)), "../drizzle/meta/_journal.json");
+
 /**
- * True when a test Postgres is reachable. Integration suites use this to
- * skip rather than fail on machines without Docker running, so `pnpm test`
- * stays green everywhere while `pnpm test:integration` does the real work.
+ * The `when` of the newest migration on disk. Drizzle's migrator stores that
+ * same value in `drizzle.__drizzle_migrations.created_at`, so the two are
+ * directly comparable.
+ */
+function latestMigrationOnDisk(): number | undefined {
+  try {
+    const journal = JSON.parse(readFileSync(JOURNAL_PATH, "utf8")) as { entries?: { when: number }[] };
+    const whens = (journal.entries ?? []).map((entry) => entry.when);
+    return whens.length > 0 ? Math.max(...whens) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function latestMigrationApplied(db: Database): Promise<number | undefined> {
+  // Returns undefined when the bookkeeping table does not exist, i.e. the
+  // database has never been migrated at all.
+  const result = await db.execute<{ latest: string | null }>(
+    sql`SELECT max(created_at)::text AS latest FROM drizzle.__drizzle_migrations`,
+  );
+  const rows = result as unknown as { latest: string | null }[];
+  const latest = rows[0]?.latest;
+  return latest === null || latest === undefined ? undefined : Number(latest);
+}
+
+/**
+ * True when a test Postgres is reachable **and** its schema is current.
+ *
+ * Reachability alone is not enough. A database left over from an earlier
+ * checkout answers `SELECT 1` perfectly well and then fails deep inside a
+ * test with a raw `column ... does not exist`, which reads like a code bug
+ * rather than a missing migration. Suites skip on a stale schema instead,
+ * after printing the command that fixes it — a skip you were told about
+ * beats a failure you have to diagnose.
  */
 export async function isTestDatabaseAvailable(): Promise<boolean> {
+  let db: Database | undefined;
   try {
-    const db = createDatabase(TEST_DATABASE_URL);
+    db = createDatabase(TEST_DATABASE_URL);
     await db.execute(sql`SELECT 1`);
-    await closeDatabase(db);
-    return true;
+
+    const expected = latestMigrationOnDisk();
+    if (expected === undefined) return true; // No journal to compare against.
+
+    const applied = await latestMigrationApplied(db).catch(() => undefined);
+    if (applied !== undefined && applied >= expected) return true;
+
+    console.warn(
+      [
+        "",
+        "  Integration suites skipped: the test database schema is out of date.",
+        `    database: ${TEST_DATABASE_URL.replace(/:\/\/[^@]*@/, "://***@")}`,
+        `    newest migration on disk:    ${expected}`,
+        `    newest migration applied:    ${applied ?? "none"}`,
+        "",
+        "  Apply migrations, then re-run:",
+        `    DATABASE_URL=${TEST_DATABASE_URL} pnpm db:migrate`,
+        "",
+      ].join("\n"),
+    );
+    return false;
   } catch {
     return false;
+  } finally {
+    if (db) await closeDatabase(db).catch(() => undefined);
   }
 }
 

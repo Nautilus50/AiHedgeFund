@@ -183,6 +183,14 @@ rather than timing out. ioredis in particular retries a refused connection
 forever, so a `waitUntilReady()` probe never rejects — the Redis guard uses a
 raw socket with its own timeout for that reason.
 
+The database guard checks the **schema**, not just reachability. A test
+database left over from an earlier checkout answers `SELECT 1` and then fails
+deep inside a test with a raw `column ... does not exist`, which reads like a
+code bug. Instead it compares the newest migration in
+`drizzle/meta/_journal.json` against `drizzle.__drizzle_migrations`, and on a
+mismatch prints the `db:migrate` command and skips. If integration suites
+skip unexpectedly, read stderr — the reason is there.
+
 For e2e, install the browser once:
 
 ```bash
