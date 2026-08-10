@@ -1,3 +1,4 @@
+import { connect } from "node:net";
 import { Queue, Worker } from "bullmq";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { generateId } from "@arf-os/contracts";
@@ -6,19 +7,46 @@ import { BullMqPublisher, parseRedisUrl } from "./bullmq-publisher.js";
 
 const REDIS_URL = process.env.TEST_REDIS_URL ?? process.env.REDIS_URL ?? "redis://localhost:6379";
 
-async function redisAvailable(): Promise<boolean> {
-  try {
-    const queue = new Queue("availability-probe", { connection: parseRedisUrl(REDIS_URL) });
-    await queue.waitUntilReady();
-    await queue.obliterate({ force: true });
-    await queue.close();
-    return true;
-  } catch {
-    return false;
-  }
+const PROBE_TIMEOUT_MS = 1_000;
+
+/**
+ * Bounded reachability check, deliberately at the TCP level rather than
+ * through BullMQ.
+ *
+ * ioredis retries a refused connection forever by default, so a
+ * `queue.waitUntilReady()` probe never rejects and a try/catch around it
+ * never fires. That matters more than usual here: this guard runs during
+ * module evaluation, before any `describe`, where vitest's testTimeout and
+ * hookTimeout do not apply — so an unbounded wait hangs the entire run
+ * instead of failing it. That is precisely how this suite behaved with no
+ * Redis running.
+ *
+ * A raw socket cannot retry-loop and cannot outlive its own timeout. If
+ * something other than Redis is listening on the port, the suite then fails
+ * loudly on its real assertions, which is the right failure mode — unlike a
+ * silent hang.
+ *
+ * Production behaviour is deliberately left alone: a relay *should* retry
+ * indefinitely so it survives a Redis blip. Only this probe fails fast.
+ */
+function redisReachable(): Promise<boolean> {
+  const { host, port } = parseRedisUrl(REDIS_URL);
+
+  return new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const settle = (reachable: boolean) => {
+      socket.destroy();
+      resolve(reachable);
+    };
+
+    socket.setTimeout(PROBE_TIMEOUT_MS);
+    socket.once("connect", () => settle(true));
+    socket.once("timeout", () => settle(false));
+    socket.once("error", () => settle(false));
+  });
 }
 
-const available = await redisAvailable();
+const available = await redisReachable();
 const TEST_QUEUE = QUEUE_NAMES.readModelRefresh;
 
 describe.skipIf(!available)("BullMqPublisher (integration)", () => {

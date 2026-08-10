@@ -172,7 +172,16 @@ TEST_DATABASE_URL=postgres://arf:arf@localhost:5432/arf_os_test \
 ```
 
 Suites skip themselves when their infrastructure is unavailable, so
-`pnpm test` stays green on a machine with no Docker.
+`pnpm test` stays green on a machine with no Docker, and
+`pnpm test:integration` runs whatever it can rather than failing or hanging.
+With Postgres but no Redis, for instance, only the three BullMQ tests skip.
+
+Each guard must be **bounded**, which is easy to get wrong: these checks run
+during module evaluation, before any `describe`, where vitest's `testTimeout`
+and `hookTimeout` do not apply. An unbounded probe there hangs the whole run
+rather than timing out. ioredis in particular retries a refused connection
+forever, so a `waitUntilReady()` probe never rejects — the Redis guard uses a
+raw socket with its own timeout for that reason.
 
 For e2e, install the browser once:
 
