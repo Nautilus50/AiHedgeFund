@@ -3,7 +3,7 @@
   "build": {
     "builder": "NIXPACKS",
     "buildCommand": "pnpm install --frozen-lockfile && pnpm exec turbo run build --filter=@arf-os/worker-research...",
-    "watchPatterns": ["apps/worker-research/**", "packages/**", "pnpm-lock.yaml", "package.json", "turbo.json"]
+    "watchPatterns": ["apps/worker-research/**", "packages/**", "pnpm-lock.yaml", "package.json", "turbo.json", "railway/worker-research.json"]
   },
   "deploy": {
     "startCommand": "pnpm --filter @arf-os/worker-research start",
