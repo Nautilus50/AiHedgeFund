@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { strategyVersions } from "./strategy.js";
 import { artefacts } from "./artefacts.js";
 
@@ -43,6 +43,14 @@ export const reportUploads = pgTable("report_uploads", {
   parseStatus: text("parse_status").notNull().default("PENDING"),
   parserVersion: text("parser_version"),
   parseWarnings: text("parse_warnings").array().notNull().default([]),
+  /**
+   * What the report itself reported, exactly as parsed: metric titles with
+   * values keyed by their source column headers, never reinterpreted
+   * (CLAUDE.md 15.2). Deliberately not in `metric_snapshots` — TradingView's
+   * numbers stay structurally separate from independently calculated ones,
+   * attached to the upload they came from. Null when the parse failed.
+   */
+  parsedMetrics: jsonb("parsed_metrics"),
   uploadedByUserId: uuid("uploaded_by_user_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -127,6 +127,15 @@ export async function completeReportUpload(
     ? parseOutcome.result.warnings.map((w) => `${w.code}: ${w.message}`)
     : [parseOutcome.result.message];
 
+  // A Performance Summary's reported metrics are the only TradingView side
+  // parity has to compare against, so they are persisted here rather than
+  // returned and discarded. Stored verbatim — titles and source column
+  // headers as the parser produced them, no reinterpretation (CLAUDE.md 15.2).
+  const parsedMetrics =
+    parseOutcome.kind === "PERFORMANCE_SUMMARY" && parseOutcome.result.ok
+      ? parseOutcome.result.metrics
+      : null;
+
   await db.transaction(async (tx) => {
     await tx.insert(artefacts).values({
       id: artefactId,
@@ -146,6 +155,7 @@ export async function completeReportUpload(
       parseStatus,
       parserVersion,
       parseWarnings,
+      parsedMetrics,
       uploadedByUserId: input.uploadedByUserId,
     });
   });

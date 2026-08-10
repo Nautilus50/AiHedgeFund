@@ -142,6 +142,9 @@ importers:
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@arf-os/pine':
+        specifier: workspace:*
+        version: link:../../packages/pine
       bullmq:
         specifier: ^5.34.1
         version: 5.81.3(supports-color@7.2.0)

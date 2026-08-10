@@ -3,11 +3,17 @@ import { createDatabase } from "@arf-os/db";
 import {
   EquityReconstructionJob,
   MetricCalculationJob,
+  ParityCalculationJob,
   QUEUE_NAMES,
   parseRedisUrl,
 } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
-import { handleEquityReconstruction, handleMetricCalculation, markRunAnalysed } from "./handlers.js";
+import {
+  handleEquityReconstruction,
+  handleMetricCalculation,
+  handleParityCalculation,
+  markRunAnalysed,
+} from "./handlers.js";
 
 try {
   process.loadEnvFile();
@@ -50,17 +56,36 @@ async function main() {
     { connection },
   );
 
-  for (const worker of [equityWorker, metricsWorker]) {
+  const parityWorker = new Worker(
+    QUEUE_NAMES.parityCalculation,
+    async (job) => {
+      const input = ParityCalculationJob.parse(job.data);
+      const result = await handleParityCalculation(db, input);
+      logger.info(
+        { jobId: job.id, backtestRunId: input.backtestRunId, verificationId: input.verificationId, ...result },
+        "parity calculated",
+      );
+      return result;
+    },
+    { connection },
+  );
+
+  for (const worker of [equityWorker, metricsWorker, parityWorker]) {
     worker.on("failed", (job, error) => {
       logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
     });
   }
 
-  logger.info({ queues: [QUEUE_NAMES.equityReconstruction, QUEUE_NAMES.metricCalculation] }, "worker started");
+  logger.info(
+    {
+      queues: [QUEUE_NAMES.equityReconstruction, QUEUE_NAMES.metricCalculation, QUEUE_NAMES.parityCalculation],
+    },
+    "worker started",
+  );
 
   const shutdown = async () => {
     logger.info("shutting down");
-    await Promise.all([equityWorker.close(), metricsWorker.close()]);
+    await Promise.all([equityWorker.close(), metricsWorker.close(), parityWorker.close()]);
     process.exit(0);
   };
   process.on("SIGTERM", () => void shutdown());

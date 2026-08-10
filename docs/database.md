@@ -45,16 +45,28 @@ at the constraint instead of silently overwriting tested evidence
 |---|---|
 | `artefacts` | Object-store pointer with server-computed `checksum_sha256` |
 | `tradingview_verifications` | Human-assisted verification task |
-| `report_uploads` | Per-file parse status, parser version, warnings |
+| `report_uploads` | Per-file parse status, parser version, warnings, and the metrics the report itself stated (`parsed_metrics`) |
 | `backtest_runs` | Run identity: runner, version, symbol, window, cost model |
 | `trades` | Reconstructed trade ledger |
 | `equity_points` / `drawdown_points` | Reconstructed curves |
 | `metric_snapshots` | One row per metric, with unit and calculation version |
-| `parity_reports` | Local vs TradingView comparison (schema only so far) |
+| `parity_reports` | Local vs TradingView comparison, written by `worker-analytics` |
 
 `metric_snapshots` deliberately stores one row per metric rather than a wide
 table, so a calculation-version change can coexist with historical values
 instead of overwriting them.
+
+`report_uploads.parsed_metrics` holds what TradingView reported, verbatim —
+metric titles with values keyed by their source column headers. It is
+deliberately **not** in `metric_snapshots`: that table is for figures ARF-OS
+calculated itself, and its `calculation_version` describes our calculator,
+not somebody else's report. Keeping the two apart is what makes a parity
+comparison meaningful rather than circular.
+
+`parity_reports` has no unique constraint on `(backtest_run_id,
+verification_id)`, so the handler that writes it deletes any prior row for
+that pair first. Replaying the job replaces the verdict instead of
+accumulating duplicates.
 
 ## Governance
 

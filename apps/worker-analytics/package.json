@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "lint": "eslint src --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@arf-os/contracts": "workspace:*",
@@ -17,6 +18,7 @@
     "@arf-os/event-bus": "workspace:*",
     "@arf-os/metrics": "workspace:*",
     "@arf-os/observability": "workspace:*",
+    "@arf-os/pine": "workspace:*",
     "bullmq": "^5.34.1",
     "drizzle-orm": "^0.38.2"
   },

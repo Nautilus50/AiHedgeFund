@@ -1,14 +1,25 @@
-import { and, asc, eq } from "drizzle-orm";
-import { generateId, type MetricUnit } from "@arf-os/contracts";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { generateId, type MetricUnit, type ParityStatus } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { backtestRuns, drawdownPoints, equityPoints, metricSnapshots, trades } from "@arf-os/db";
+import {
+  backtestRuns,
+  drawdownPoints,
+  equityPoints,
+  metricSnapshots,
+  outboxEvents,
+  parityReports,
+  reportUploads,
+  trades,
+} from "@arf-os/db";
 import {
   calculateCoreMetrics,
+  compareParity,
   computeDrawdownCurve,
   reconstructEquityCurve,
   METRICS_CALCULATION_VERSION,
   type MetricsTrade,
 } from "@arf-os/metrics";
+import { extractReportedParityMetrics, type PerformanceSummaryMetric } from "@arf-os/pine";
 
 /** Loads a run's trade ledger in deterministic order and maps it into the metrics package's shape. */
 async function loadTrades(db: Database, backtestRunId: string): Promise<MetricsTrade[]> {
@@ -108,9 +119,19 @@ const METRIC_UNITS: Record<string, MetricUnit> = {
 export async function handleMetricCalculation(
   db: Database,
   input: { backtestRunId: string },
-): Promise<{ metricCount: number }> {
+): Promise<{ metricCount: number; parityQueued: boolean }> {
   const ledger = await loadTrades(db, input.backtestRunId);
   const metrics = calculateCoreMetrics(ledger);
+
+  // Parity compares against a TradingView verification, so a run with no
+  // verification has nothing to compare to. Emitting the event anyway would
+  // enqueue a job whose payload cannot satisfy ParityCalculationJob.
+  const [run] = await db
+    .select({ verificationId: backtestRuns.verificationId })
+    .from(backtestRuns)
+    .where(eq(backtestRuns.id, input.backtestRunId))
+    .limit(1);
+  const verificationId = run?.verificationId ?? undefined;
 
   const values: { name: string; value: number | null }[] = [
     { name: "closed_trade_count", value: metrics.closedTradeCount },
@@ -156,9 +177,27 @@ export async function handleMetricCalculation(
         })),
       );
     }
+
+    // Written in the same transaction as the snapshots so the event cannot
+    // survive a rolled-back write, nor be lost after a committed one
+    // (CLAUDE.md 9.3). The relay routes it to the parity queue.
+    if (verificationId) {
+      const now = new Date();
+      await tx.insert(outboxEvents).values({
+        id: generateId<string>(),
+        eventType: "metrics.calculated",
+        eventVersion: "1.0.0",
+        aggregateId: input.backtestRunId,
+        aggregateVersion: now.getTime().toString(),
+        correlationId: generateId<string>(),
+        actor: "worker-analytics",
+        payload: { backtestRunId: input.backtestRunId, verificationId },
+        createdAt: now,
+      });
+    }
   });
 
-  return { metricCount: storable.length };
+  return { metricCount: storable.length, parityQueued: verificationId !== undefined };
 }
 
 /** Marks a run succeeded once its analytics chain has completed. */
@@ -167,4 +206,124 @@ export async function markRunAnalysed(db: Database, backtestRunId: string): Prom
     .update(backtestRuns)
     .set({ status: "SUCCEEDED", completedAt: new Date() })
     .where(eq(backtestRuns.id, backtestRunId));
+}
+
+export interface ParityCalculationResult {
+  status: ParityStatus;
+  firstDivergence: string | undefined;
+}
+
+/**
+ * Reads the locally calculated figures parity compares. `net_profit` and
+ * `closed_trade_count` come from this run's metric snapshots at the current
+ * calculation version; max drawdown is the peak of the reconstructed
+ * drawdown curve, which is stored as points rather than a snapshot.
+ */
+async function loadLocalParityMetrics(
+  db: Database,
+  backtestRunId: string,
+): Promise<{ closedTradeCount: number; netProfit: number; maxDrawdown?: number }> {
+  const snapshots = await db
+    .select({ metricName: metricSnapshots.metricName, value: metricSnapshots.value })
+    .from(metricSnapshots)
+    .where(
+      and(
+        eq(metricSnapshots.scopeType, "RUN"),
+        eq(metricSnapshots.scopeId, backtestRunId),
+        eq(metricSnapshots.calculationVersion, METRICS_CALCULATION_VERSION),
+        inArray(metricSnapshots.metricName, ["closed_trade_count", "net_profit"]),
+      ),
+    );
+
+  const byName = new Map(snapshots.map((row) => [row.metricName, Number(row.value)]));
+  const closedTradeCount = byName.get("closed_trade_count");
+  const netProfit = byName.get("net_profit");
+
+  // The relay only enqueues parity after metrics.calculated, so absence here
+  // means the chain ran out of order rather than that the figures are
+  // genuinely unknown. Fail loudly instead of comparing against a guess.
+  if (closedTradeCount === undefined || netProfit === undefined) {
+    throw new Error(
+      `Run ${backtestRunId} has no closed_trade_count/net_profit snapshot at calculation version ${METRICS_CALCULATION_VERSION}; metric calculation must run before parity.`,
+    );
+  }
+
+  const [peak] = await db
+    .select({ maxDrawdown: sql<string | null>`max(${drawdownPoints.drawdown})` })
+    .from(drawdownPoints)
+    .where(eq(drawdownPoints.backtestRunId, backtestRunId));
+
+  const maxDrawdown = peak?.maxDrawdown === null || peak?.maxDrawdown === undefined ? undefined : Number(peak.maxDrawdown);
+
+  return { closedTradeCount, netProfit, ...(maxDrawdown === undefined ? {} : { maxDrawdown }) };
+}
+
+/**
+ * Reads what TradingView reported for a verification. Uses the most recent
+ * successfully parsed Performance Summary: a researcher who re-uploads is
+ * correcting the earlier attempt, and the superseded uploads remain on
+ * record with their raw artefacts either way.
+ */
+async function loadReportedParityMetrics(db: Database, verificationId: string) {
+  const [upload] = await db
+    .select({ parsedMetrics: reportUploads.parsedMetrics })
+    .from(reportUploads)
+    .where(
+      and(
+        eq(reportUploads.verificationId, verificationId),
+        eq(reportUploads.kind, "PERFORMANCE_SUMMARY"),
+        eq(reportUploads.parseStatus, "PARSED"),
+      ),
+    )
+    .orderBy(desc(reportUploads.createdAt))
+    .limit(1);
+
+  if (!upload?.parsedMetrics) return {};
+  return extractReportedParityMetrics(upload.parsedMetrics as PerformanceSummaryMetric[]);
+}
+
+/**
+ * Compares this run's independently calculated metrics against the figures
+ * TradingView reported, and persists the result (spec 13.4).
+ *
+ * Idempotent by deletion-then-insert per (run, verification), matching the
+ * other analytics handlers: replaying the job replaces the report rather
+ * than accumulating duplicates, which matters because `parity_reports` has
+ * no unique constraint on that pair.
+ *
+ * An absent or unparsed report yields INSUFFICIENT_DATA rather than an
+ * error — a verification whose summary has not been uploaded yet is an
+ * ordinary state, not a failure.
+ */
+export async function handleParityCalculation(
+  db: Database,
+  input: { backtestRunId: string; verificationId: string },
+): Promise<ParityCalculationResult> {
+  const local = await loadLocalParityMetrics(db, input.backtestRunId);
+  const reported = await loadReportedParityMetrics(db, input.verificationId);
+  const report = compareParity(local, reported);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(parityReports)
+      .where(
+        and(
+          eq(parityReports.backtestRunId, input.backtestRunId),
+          eq(parityReports.verificationId, input.verificationId),
+        ),
+      );
+
+    await tx.insert(parityReports).values({
+      id: generateId<string>(),
+      backtestRunId: input.backtestRunId,
+      verificationId: input.verificationId,
+      status: report.status,
+      // Both sides and every field's severity are kept, so an investigator
+      // can see what was compared without re-running anything.
+      comparison: { local, reported, comparisons: report.comparisons },
+      firstDivergence: report.firstDivergence ?? null,
+    });
+  });
+
+  return { status: report.status, firstDivergence: report.firstDivergence };
 }

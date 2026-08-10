@@ -531,7 +531,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 152 unit tests, 30 integration tests, 7 end-to-end tests
+- 161 unit tests, 41 integration tests, 7 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
@@ -548,8 +548,12 @@ Honest gaps in what is built, beyond the "not started" rows above:
   enforce CORS, so no suite can catch it. `./scripts/verify-credentials.sh`
   issues a real preflight and fails loudly when the policy is missing; the
   required JSON is in [local setup](docs/local-setup.md).
-- **Parity reports are not persisted.** The comparison logic exists and is
-  tested, but no worker writes `parity_reports` yet.
+- **Parity is only as complete as its inputs.** `parity_reports` is now
+  written by `worker-analytics`, comparing this run's metric snapshots
+  against the figures a TradingView Performance Summary stated. It compares
+  three fields — closed trade count, net profit, max drawdown — so a
+  divergence outside those is invisible to it, and a verification with no
+  parsed summary yields `INSUFFICIENT_DATA` rather than a verdict.
 - **Abandoned uploads are not reaped.** A presigned URL used without calling
   complete leaves an orphaned object.
 - **No indexes beyond keys and unique constraints.** Query patterns are known
