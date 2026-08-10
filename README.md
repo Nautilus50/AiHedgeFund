@@ -4,10 +4,10 @@
 
 **A multi-agent operating system for discovering, developing, testing, rejecting, forward-testing, and cataloguing systematic trading strategies.**
 
-> **Project status:** Specification complete · MVP implementation pending  
+> **Project status:** Evidence-registry slice built and deployed · Pine runner, forward testing, and validation lab not started  
 > **Strategy language:** Pine Script® v6  
 > **Primary stack:** TypeScript · Next.js · Fastify · PostgreSQL · Redis · BullMQ  
-> **Deployment target:** Railway-compatible services
+> **Deployment:** Railway — see [`docs/railway-deploy.md`](./docs/railway-deploy.md)
 
 ARF-OS turns systematic trading research into a controlled, reproducible production line.
 
