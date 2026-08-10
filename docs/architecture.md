@@ -62,41 +62,61 @@ storage — never taken from the client (CLAUDE.md 15.1). If parsing then fails,
 the raw artefact and its checksum are still persisted; a rejected parse must
 not cost us the evidence.
 
-### What of that chain is actually wired
+### What of that chain is wired
 
-The diagram above is the intended flow. Several links are not yet built, and
-the gaps are easy to miss because `routeOutboxEvent` already maps every event
-to a queue — routing exists for events nothing emits, and for queues nothing
-consumes. Current state, end to end:
+`routeOutboxEvent` maps events to queues regardless of whether either end
+exists, so the routing table alone does not tell you what runs. Current
+state, end to end:
 
 | Link | Producer | Consumer |
 |---|---|---|
-| `report_upload.parsed` → `trade-normalisation` | **none** | **none** |
-| `trades.normalised` → `equity-reconstruction` | **none** | `worker-analytics` |
+| `report_upload.parsed` → `trade-normalisation` | `api` | `worker-backtest` |
+| `trades.normalised` → `equity-reconstruction` | `worker-backtest` | `worker-analytics` |
 | `equity.reconstructed` → `metric-calculation` | `worker-analytics` | `worker-analytics` |
 | `metrics.calculated` → `parity-calculation` | `worker-analytics` | `worker-analytics` |
 | `strategy_version.transitioned` → `read-model-refresh` | `workflow` | **none** |
 | `committee_decision.created` → `read-model-refresh` | **none** | **none** |
 
-Two tables sit at the centre of the missing stretch: **nothing creates
-`backtest_runs`, and nothing writes `trades`.** A parsed List of Trades is
-discarded after its parse result is returned, so the trade ledger every
-downstream handler reads is never populated by production code. The equity,
-drawdown, metric, and parity handlers are complete and tested, but no
-end-to-end path currently reaches them.
+The ingestion chain runs end to end: completing a List of Trades upload
+against a known run writes the ledger, which reconstructs equity and
+drawdown, which calculates metrics, which produces a parity verdict. Only
+the read-model refresh remains unconsumed.
 
-Closing that stretch needs three things, not just the two missing events:
-persisting the parsed trades, a `trade-normalisation` consumer that writes
-the ledger, and a way for a `backtest_runs` row to exist in the first place.
+### Starting the chain
 
-**A run's identity must come from the research plan, not from ingestion.**
-`backtest_runs` requires `segment_kind`, `from_ts`, `to_ts`, `cost_model`,
-`initial_capital`, `source_hash`, and `runner_version`, all NOT NULL. None
-are derivable from a TradingView CSV. A worker that invented them to satisfy
-the schema would be fabricating exactly the provenance that reproducibility
-depends on (CLAUDE.md 4). The intended shape is an explicit API call that
-records those fields from the researcher, with uploads attaching to an
-existing run — not a run conjured during ingestion.
+Two things must be true before an upload cascades, and both are deliberate.
+
+**A run must already exist.** `POST /v1/backtest-runs` records the market,
+window, cost model, capital, and source hash a result was produced
+under — every field NOT NULL, none defaulted. Reproducibility depends on
+those being what the researcher actually used (CLAUDE.md 4), and none can be
+recovered from a TradingView export, so a worker inventing them to satisfy
+the schema would be manufacturing provenance. Run identity is a command, not
+an inference.
+
+**The upload must name that run.** `POST /v1/verifications/:id/uploads/complete`
+takes an optional `backtestRunId`; supplying it is what emits
+`report_upload.parsed`. Without it — or for a Performance Summary, or a
+failed parse — the upload is still stored as evidence, but nothing is
+emitted, because a trade row cannot exist without the run whose identity it
+was produced under. The route checks the run belongs to the caller's
+organisation and to the same strategy version as the verification before the
+id reaches an outbox payload.
+
+### One recorded assumption about P&L
+
+A TradingView export states a single profit figure per trade and no
+per-trade fee breakdown. Normalisation records that figure as **both**
+`gross_pnl` and `net_pnl`, leaving `fees` at 0 — which means "no separate
+fee figure was reported", not "there were no fees".
+
+The alternative, leaving `net_pnl` null, would make every downstream metric
+silently compute zero closed trades: a wrong answer that looks like a real
+one. An explicit recorded assumption is the lesser evil, but it is an
+assumption, and parity is what would expose it — a fee-inclusive summary
+compared against a fee-free ledger diverges on net profit. If a runner ever
+supplies real fee data, that is a new parser version and a new ledger, never
+an edit to existing rows.
 
 ## Packages
 

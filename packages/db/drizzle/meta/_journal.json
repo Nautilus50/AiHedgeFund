@@ -29,6 +29,13 @@
       "when": 1786381613689,
       "tag": "0003_regular_omega_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786394497989,
+      "tag": "0004_glamorous_wind_dancer",
+      "breakpoints": true
     }
   ]
 }

@@ -128,15 +128,56 @@ curl -X POST http://localhost:4000/v1/verifications/$VERIFICATION_ID/uploads \
 # 3. Upload the bytes directly to storage (not through the API)
 curl -X PUT "$UPLOAD_URL" -H "Content-Type: text/csv" --data-binary @list-of-trades.csv
 
-# 4. Complete: server re-fetches, checksums, persists, parses
+# 4. Complete: server re-fetches, checksums, persists, parses.
+#    Naming the run is what starts normalisation (see Backtest runs below);
+#    omit it and the upload is stored as evidence but nothing is queued.
 curl -X POST http://localhost:4000/v1/verifications/$VERIFICATION_ID/uploads/complete \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "{\"kind\":\"LIST_OF_TRADES\",\"objectKey\":\"$OBJECT_KEY\"}"
+  -d "{\"kind\":\"LIST_OF_TRADES\",\"objectKey\":\"$OBJECT_KEY\",\"backtestRunId\":\"$RUN_ID\"}"
+# -> { "artefactId": "...", "reportUploadId": "...", "parseOutcome": {...},
+#      "normalisationQueued": true }
 ```
 
 The object key is never trusted for ownership — organisation, campaign, and
-strategy are derived server-side from the verification row.
+strategy are derived server-side from the verification row. `backtestRunId`
+is likewise re-checked against the caller's organisation and against the
+verification's strategy version before it reaches an outbox payload.
+
+## Backtest runs
+
+A run records what a result was produced under. Every field is required: none
+can be recovered from a TradingView export, and defaulting one would record
+an assumption the researcher never made.
+
+```bash
+curl -X POST http://localhost:4000/v1/backtest-runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"strategyVersionId":"019fe…",
+       "runnerType":"TRADINGVIEW",
+       "runnerVersion":"tv-2026.08",
+       "verificationId":"019fe…",
+       "symbol":"BYBIT:BTCUSDT.P",
+       "timeframe":"60",
+       "segmentKind":"IN_SAMPLE",
+       "fromTs":"2024-01-01T00:00:00Z",
+       "toTs":"2024-06-30T23:59:59Z",
+       "costModel":{"commissionPct":0.055,"slippageTicks":1},
+       "initialCapital":"10000",
+       "sourceHash":"e3b0c44…"}'
+# -> { "backtestRunId": "019fe…" }
+
+curl http://localhost:4000/v1/backtest-runs/$RUN_ID -H "Authorization: Bearer $TOKEN"
+```
+
+`initialCapital` is a string, not a JSON number: capital is decimal money and
+JSON numbers are IEEE-754 doubles. `verificationId` is optional, but when
+given it must belong to the same strategy version as the run — otherwise
+parity would end up comparing two different strategies.
+
+Completing a List of Trades upload with this run's id starts the chain:
+ledger → equity and drawdown → metric snapshots → parity report.
 
 ## Committee decision
 

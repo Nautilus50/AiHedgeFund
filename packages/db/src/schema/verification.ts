@@ -51,6 +51,14 @@ export const reportUploads = pgTable("report_uploads", {
    * attached to the upload they came from. Null when the parse failed.
    */
   parsedMetrics: jsonb("parsed_metrics"),
+  /**
+   * The trades a List of Trades export stated, exactly as parsed — paired
+   * entry/exit rows with the figures the report gave. Normalisation reads
+   * this to write the `trades` ledger, so the ledger's provenance is a
+   * stored parse result rather than a re-read of the raw CSV. Null for a
+   * Performance Summary, or when the parse failed.
+   */
+  parsedTrades: jsonb("parsed_trades"),
   uploadedByUserId: uuid("uploaded_by_user_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

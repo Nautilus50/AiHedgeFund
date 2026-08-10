@@ -5,6 +5,7 @@ import type { Database } from "@arf-os/db";
 import { checkIdempotency, recordIdempotency } from "../lib/idempotency.js";
 import { sendProblem } from "../lib/problem-details.js";
 import { requireIdempotencyKey, requireRoleOr403 } from "../lib/request-helpers.js";
+import { getBacktestRun } from "../services/backtest-runs.js";
 import {
   createReportUploadIntent,
   createTradingViewVerification,
@@ -28,7 +29,16 @@ const CreateVerificationBody = z.object({
 const ReportKindSchema = z.enum(["PERFORMANCE_SUMMARY", "LIST_OF_TRADES"]);
 
 const CreateUploadIntentBody = z.object({ kind: ReportKindSchema });
-const CompleteUploadBody = z.object({ kind: ReportKindSchema, objectKey: z.string().min(1) });
+const CompleteUploadBody = z.object({
+  kind: ReportKindSchema,
+  objectKey: z.string().min(1),
+  /**
+   * Supplying the run this ledger belongs to is what starts normalisation.
+   * Optional so a summary — or a ledger uploaded before its run exists —
+   * still gets stored as evidence.
+   */
+  backtestRunId: z.string().uuid().optional(),
+});
 
 export function registerVerificationRoutes(app: FastifyInstance, deps: VerificationRouteDeps): void {
   app.post("/v1/verifications", async (request, reply) => {
@@ -152,6 +162,31 @@ export function registerVerificationRoutes(app: FastifyInstance, deps: Verificat
       return;
     }
 
+    // Resolved against the caller's organisation before it can reach the
+    // outbox payload — a run id from a request body is untrusted input
+    // (CLAUDE.md 19.1, 19.5).
+    if (parsed.data.backtestRunId) {
+      const run = await getBacktestRun(deps.db, auth.organisationId, parsed.data.backtestRunId);
+      if (!run) {
+        sendProblem(reply, {
+          status: 404,
+          title: "Not Found",
+          detail: `No backtest run ${parsed.data.backtestRunId}.`,
+          instance: request.url,
+        });
+        return;
+      }
+      if (run.strategyVersionId !== verification.strategyVersionId) {
+        sendProblem(reply, {
+          status: 422,
+          title: "Run does not match verification",
+          detail: "The backtest run and the verification must belong to the same strategy version.",
+          instance: request.url,
+        });
+        return;
+      }
+    }
+
     const idem = await checkIdempotency(deps.db, idempotencyKey, parsed.data);
     if (idem.status === "CONFLICT") {
       sendProblem(reply, { status: 409, title: "Idempotency-Key conflict", detail: "Key reused with a different body.", instance: request.url });
@@ -168,6 +203,7 @@ export function registerVerificationRoutes(app: FastifyInstance, deps: Verificat
       kind: parsed.data.kind,
       objectKey: parsed.data.objectKey,
       uploadedByUserId: auth.userId,
+      backtestRunId: parsed.data.backtestRunId,
     });
 
     await recordIdempotency(deps.db, {

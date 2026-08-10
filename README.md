@@ -516,7 +516,8 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Object storage and presigned uploads | Built (S3-compatible) |
 | TradingView CSV ingestion | Built (both export variants, versioned parsers) |
 | Independent metrics, equity, drawdown, parity | Built |
-| API endpoints | Built (campaigns, strategies, verifications, decisions, audit) |
+| API endpoints | Built (campaigns, strategies, verifications, backtest runs, decisions, audit) |
+| Ingestion chain | Built — upload → ledger → equity/drawdown → metrics → parity, driven by the outbox |
 | Frontend screens | Built — minimal, unstyled |
 | Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
@@ -531,7 +532,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 161 unit tests, 41 integration tests, 7 end-to-end tests
+- 161 unit tests, 58 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
@@ -548,12 +549,24 @@ Honest gaps in what is built, beyond the "not started" rows above:
   enforce CORS, so no suite can catch it. `./scripts/verify-credentials.sh`
   issues a real preflight and fails loudly when the policy is missing; the
   required JSON is in [local setup](docs/local-setup.md).
-- **Parity is only as complete as its inputs.** `parity_reports` is now
-  written by `worker-analytics`, comparing this run's metric snapshots
-  against the figures a TradingView Performance Summary stated. It compares
-  three fields — closed trade count, net profit, max drawdown — so a
-  divergence outside those is invisible to it, and a verification with no
-  parsed summary yields `INSUFFICIENT_DATA` rather than a verdict.
+- **Parity is only as complete as its inputs.** `parity_reports` is written
+  by `worker-analytics`, comparing this run's metric snapshots against the
+  figures a TradingView Performance Summary stated. It compares three
+  fields — closed trade count, net profit, max drawdown — so a divergence
+  outside those is invisible to it, and a verification with no parsed summary
+  yields `INSUFFICIENT_DATA` rather than a verdict.
+- **Per-trade fees are assumed absent, not known to be.** A TradingView
+  export states one profit figure per trade and no fee breakdown, so
+  normalisation records it as both `gross_pnl` and `net_pnl` with `fees` at 0.
+  That means "no separate fee figure was reported". The alternative — a null
+  `net_pnl` — would make every downstream metric silently compute zero closed
+  trades, a wrong answer that looks like a real one. Parity is what would
+  expose the assumption: a fee-inclusive summary compared against a fee-free
+  ledger diverges on net profit. See `docs/architecture.md`.
+- **A run's identity is trusted as supplied.** `POST /v1/backtest-runs`
+  records the cost model, window, and capital the researcher states. Nothing
+  verifies those match what TradingView was actually configured with; parity
+  on the resulting figures is the only check.
 - **Abandoned uploads are not reaped.** A presigned URL used without calling
   complete leaves an orphaned object.
 - **No indexes beyond keys and unique constraints.** Query patterns are known

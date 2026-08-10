@@ -2,7 +2,14 @@ import type { S3Client } from "@aws-sdk/client-s3";
 import { and, eq } from "drizzle-orm";
 import { generateId, sha256Hex } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { artefacts, reportUploads, strategies, strategyVersions, tradingviewVerifications } from "@arf-os/db";
+import {
+  artefacts,
+  outboxEvents,
+  reportUploads,
+  strategies,
+  strategyVersions,
+  tradingviewVerifications,
+} from "@arf-os/db";
 import { parseListOfTrades, parsePerformanceSummary } from "@arf-os/pine";
 import type { ListOfTradesParseResult, PerformanceSummaryParseResult, TradingViewParseFailure } from "@arf-os/pine";
 import {
@@ -88,12 +95,21 @@ export interface CompleteUploadInput {
   kind: ReportKind;
   objectKey: string;
   uploadedByUserId: string;
+  /**
+   * The run this ledger belongs to. Optional, and only meaningful for a
+   * List of Trades: supplying it is what starts normalisation, because a
+   * trade row cannot exist without the run whose identity it was produced
+   * under. The caller must have already verified the run's organisation.
+   */
+  backtestRunId?: string | undefined;
 }
 
 export interface CompleteUploadResult {
   artefactId: string;
   reportUploadId: string;
   parseOutcome: ReportParseOutcome;
+  /** True when a report_upload.parsed event was emitted, i.e. normalisation will run. */
+  normalisationQueued: boolean;
 }
 
 /**
@@ -136,6 +152,18 @@ export async function completeReportUpload(
       ? parseOutcome.result.metrics
       : null;
 
+  // Likewise for a trade ledger: normalisation reads this rather than
+  // re-fetching and re-parsing the raw CSV, so the ledger it writes is
+  // traceable to one stored parse result and one parser version.
+  const parsedTrades =
+    parseOutcome.kind === "LIST_OF_TRADES" && parseOutcome.result.ok ? parseOutcome.result.trades : null;
+
+  // Only a successfully parsed ledger attached to a known run can be
+  // normalised. Without both, the upload is still stored — it is evidence
+  // either way — but no event is emitted, because there is nothing a
+  // consumer could do with it.
+  const normalisationQueued = parsedTrades !== null && input.backtestRunId !== undefined;
+
   await db.transaction(async (tx) => {
     await tx.insert(artefacts).values({
       id: artefactId,
@@ -156,11 +184,31 @@ export async function completeReportUpload(
       parserVersion,
       parseWarnings,
       parsedMetrics,
+      parsedTrades,
       uploadedByUserId: input.uploadedByUserId,
     });
+
+    // Transactional outbox: committed with the rows it describes, so the
+    // event cannot exist without the upload nor be lost after it
+    // (CLAUDE.md 9.3). The relay routes it to trade normalisation.
+    if (normalisationQueued) {
+      const now = new Date();
+      await tx.insert(outboxEvents).values({
+        id: generateId<string>(),
+        eventType: "report_upload.parsed",
+        eventVersion: "1.0.0",
+        aggregateId: reportUploadId,
+        aggregateVersion: now.getTime().toString(),
+        correlationId: generateId<string>(),
+        actor: input.uploadedByUserId,
+        // TradeNormalisationJob's exact shape.
+        payload: { backtestRunId: input.backtestRunId, reportUploadId },
+        createdAt: now,
+      });
+    }
   });
 
-  return { artefactId, reportUploadId, parseOutcome };
+  return { artefactId, reportUploadId, parseOutcome, normalisationQueued };
 }
 
 /**

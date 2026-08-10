@@ -1,11 +1,15 @@
+import { Worker } from "bullmq";
 import { createDatabase } from "@arf-os/db";
 import {
   BullMqPublisher,
   DrizzleOutboxStore,
+  QUEUE_NAMES,
+  TradeNormalisationJob,
   parseRedisUrl,
   relayOutboxBatch,
 } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
+import { handleTradeNormalisation } from "./handlers.js";
 
 try {
   process.loadEnvFile();
@@ -30,17 +34,39 @@ function requireEnv(name: string): string {
  * publishes them onto BullMQ (CLAUDE.md 9.3). Separate from the API process
  * so a publish stall can never block a request, and safe to run in multiple
  * replicas because claims use FOR UPDATE SKIP LOCKED.
+ *
+ * Also hosts report-ingestion consumers, which is this app's stated
+ * responsibility (CLAUDE.md — "runner and report ingestion jobs"). The
+ * BullMQ worker is event-driven and the relay loop awaits on every
+ * iteration, so the two run concurrently in one process.
  */
 async function main() {
   const db = createDatabase(requireEnv("DATABASE_URL"));
+  const connection = parseRedisUrl(requireEnv("REDIS_URL"));
   const store = new DrizzleOutboxStore(db);
-  const publisher = new BullMqPublisher(parseRedisUrl(requireEnv("REDIS_URL")));
+  const publisher = new BullMqPublisher(connection);
+
+  const normalisationWorker = new Worker(
+    QUEUE_NAMES.tradeNormalisation,
+    async (job) => {
+      const input = TradeNormalisationJob.parse(job.data);
+      const result = await handleTradeNormalisation(db, input);
+      logger.info({ jobId: job.id, ...input, ...result }, "trades normalised");
+      return result;
+    },
+    { connection },
+  );
+
+  normalisationWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, queue: QUEUE_NAMES.tradeNormalisation, err: error }, "job failed");
+  });
 
   let running = true;
 
   const shutdown = async () => {
     logger.info("shutting down");
     running = false;
+    await normalisationWorker.close();
     await publisher.close();
     process.exit(0);
   };
@@ -60,7 +86,10 @@ async function main() {
   }, RECLAIM_INTERVAL_MS);
   reclaimTimer.unref();
 
-  logger.info({ pollIntervalMs: POLL_INTERVAL_MS, batchSize: BATCH_SIZE }, "outbox relay started");
+  logger.info(
+    { pollIntervalMs: POLL_INTERVAL_MS, batchSize: BATCH_SIZE, queues: [QUEUE_NAMES.tradeNormalisation] },
+    "outbox relay started",
+  );
 
   while (running) {
     try {

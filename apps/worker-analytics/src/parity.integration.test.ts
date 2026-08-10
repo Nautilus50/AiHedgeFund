@@ -18,6 +18,7 @@ import {
   truncateAll,
   type Database,
 } from "@arf-os/db";
+import { MetricCalculationJob, ParityCalculationJob } from "@arf-os/event-bus";
 import { METRICS_CALCULATION_VERSION } from "@arf-os/metrics";
 import {
   handleEquityReconstruction,
@@ -399,9 +400,11 @@ describe.skipIf(!available)("metrics.calculated emission", () => {
     expect(result.parityQueued).toBe(true);
     const [event] = await readEmitted();
     expect(event?.aggregateId).toBe(backtestRunId);
-    // ParityCalculationJob requires both fields; an event missing the
-    // verification would fail schema validation at the worker.
     expect(event?.payload).toEqual({ backtestRunId, verificationId });
+    // The consuming worker parses this with ParityCalculationJob, which
+    // requires both fields — assert the contract here rather than discover
+    // a rejected payload in production.
+    expect(() => ParityCalculationJob.parse(event?.payload)).not.toThrow();
   });
 
   it("does not emit for a run with no verification, which has nothing to compare against", async () => {
@@ -426,8 +429,8 @@ describe.skipIf(!available)("metrics.calculated emission", () => {
       const [event] = await readEquityEvents();
       expect(event?.aggregateId).toBe(backtestRunId);
       expect(event?.actor).toBe("worker-analytics");
-      // MetricCalculationJob requires exactly this shape.
       expect(event?.payload).toEqual({ backtestRunId });
+      expect(() => MetricCalculationJob.parse(event?.payload)).not.toThrow();
     });
 
     it("emits for a run with no closed trades, whose metrics are still worth recording", async () => {

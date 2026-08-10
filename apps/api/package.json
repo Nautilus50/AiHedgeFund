@@ -16,6 +16,7 @@
     "@arf-os/auth": "workspace:*",
     "@arf-os/contracts": "workspace:*",
     "@arf-os/db": "workspace:*",
+    "@arf-os/event-bus": "workspace:*",
     "@arf-os/observability": "workspace:*",
     "@arf-os/pine": "workspace:*",
     "@arf-os/workflow": "workspace:*",

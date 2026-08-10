@@ -1,0 +1,1 @@
+ALTER TABLE "report_uploads" ADD COLUMN "parsed_trades" jsonb;

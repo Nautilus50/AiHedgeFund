@@ -38,6 +38,9 @@ importers:
       '@arf-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@arf-os/event-bus':
+        specifier: workspace:*
+        version: link:../../packages/event-bus
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -182,6 +185,15 @@ importers:
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@arf-os/pine':
+        specifier: workspace:*
+        version: link:../../packages/pine
+      bullmq:
+        specifier: ^5.34.1
+        version: 5.81.3(supports-color@7.2.0)
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

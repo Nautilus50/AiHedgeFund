@@ -45,9 +45,9 @@ at the constraint instead of silently overwriting tested evidence
 |---|---|
 | `artefacts` | Object-store pointer with server-computed `checksum_sha256` |
 | `tradingview_verifications` | Human-assisted verification task |
-| `report_uploads` | Per-file parse status, parser version, warnings, and the metrics the report itself stated (`parsed_metrics`) |
+| `report_uploads` | Per-file parse status, parser version, warnings, and what the report itself stated (`parsed_metrics`, `parsed_trades`) |
 | `backtest_runs` | Run identity: runner, version, symbol, window, cost model |
-| `trades` | Reconstructed trade ledger |
+| `trades` | Reconstructed trade ledger, written by `worker-backtest` from `parsed_trades` |
 | `equity_points` / `drawdown_points` | Reconstructed curves |
 | `metric_snapshots` | One row per metric, with unit and calculation version |
 | `parity_reports` | Local vs TradingView comparison, written by `worker-analytics` |
@@ -56,12 +56,20 @@ at the constraint instead of silently overwriting tested evidence
 table, so a calculation-version change can coexist with historical values
 instead of overwriting them.
 
-`report_uploads.parsed_metrics` holds what TradingView reported, verbatim —
-metric titles with values keyed by their source column headers. It is
-deliberately **not** in `metric_snapshots`: that table is for figures ARF-OS
-calculated itself, and its `calculation_version` describes our calculator,
-not somebody else's report. Keeping the two apart is what makes a parity
-comparison meaningful rather than circular.
+`report_uploads.parsed_metrics` and `parsed_trades` hold what TradingView
+reported, verbatim — metric titles with values keyed by their source column
+headers, and paired entry/exit rows. Neither belongs in `metric_snapshots` or
+`trades` directly: those hold figures ARF-OS produced, and
+`metric_snapshots.calculation_version` describes our calculator, not somebody
+else's report. Keeping them apart is what makes a parity comparison
+meaningful rather than circular, and it gives the ledger a traceable
+provenance — normalisation reads one stored parse result from one recorded
+parser version rather than re-reading the raw CSV.
+
+`backtest_runs` rows are created only by `POST /v1/backtest-runs`. Every
+identity column is NOT NULL with no default, because none of them can be
+recovered from a TradingView export and defaulting them would record
+assumptions the researcher never made (CLAUDE.md 4).
 
 `parity_reports` has no unique constraint on `(backtest_run_id,
 verification_id)`, so the handler that writes it deletes any prior row for
@@ -116,6 +124,8 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0000_tranquil_madelyne_pryor` | Initial 23-table schema |
 | `0001_melted_gressill` | `organisations.clerk_organisation_id` |
 | `0002_swift_jetstream` | `outbox_status` gains `PUBLISHING` |
+| `0003_regular_omega_sentinel` | `report_uploads.parsed_metrics` |
+| `0004_glamorous_wind_dancer` | `report_uploads.parsed_trades` |
 
 ## Indexes
 
