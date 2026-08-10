@@ -19,7 +19,11 @@ import {
   type Database,
 } from "@arf-os/db";
 import { METRICS_CALCULATION_VERSION } from "@arf-os/metrics";
-import { handleMetricCalculation, handleParityCalculation } from "./handlers.js";
+import {
+  handleEquityReconstruction,
+  handleMetricCalculation,
+  handleParityCalculation,
+} from "./handlers.js";
 
 const available = await isTestDatabaseAvailable();
 
@@ -407,5 +411,49 @@ describe.skipIf(!available)("metrics.calculated emission", () => {
 
     expect(result.parityQueued).toBe(false);
     expect(await readEmitted()).toHaveLength(0);
+  });
+
+  describe("equity.reconstructed emission", () => {
+    async function readEquityEvents() {
+      return db.select().from(outboxEvents).where(eq(outboxEvents.eventType, "equity.reconstructed"));
+    }
+
+    it("emits an event the relay can route to metric calculation", async () => {
+      const backtestRunId = await seedBareRun(null);
+
+      await handleEquityReconstruction(db, { backtestRunId, initialCapital: "10000" });
+
+      const [event] = await readEquityEvents();
+      expect(event?.aggregateId).toBe(backtestRunId);
+      expect(event?.actor).toBe("worker-analytics");
+      // MetricCalculationJob requires exactly this shape.
+      expect(event?.payload).toEqual({ backtestRunId });
+    });
+
+    it("emits for a run with no closed trades, whose metrics are still worth recording", async () => {
+      const backtestRunId = await seedBareRun(null);
+
+      const result = await handleEquityReconstruction(db, { backtestRunId, initialCapital: "10000" });
+
+      // One point, not zero: the curve opens at initial capital before any
+      // trade closes, so an empty ledger still has a starting point.
+      expect(result.equityPointCount).toBe(1);
+      expect(result.maxDrawdown).toBe("0.00000000");
+      expect(await readEquityEvents()).toHaveLength(1);
+    });
+
+    it("emits once per replay rather than accumulating, matching the curve rewrite", async () => {
+      const backtestRunId = await seedBareRun(null);
+
+      await handleEquityReconstruction(db, { backtestRunId, initialCapital: "10000" });
+      await handleEquityReconstruction(db, { backtestRunId, initialCapital: "10000" });
+
+      // Two runs of the job legitimately produce two events: the relay
+      // dedupes on its own row id via deterministicJobId, so replay safety
+      // lives there rather than in an outbox uniqueness constraint.
+      const events = await readEquityEvents();
+      expect(events).toHaveLength(2);
+      expect(new Set(events.map((e) => e.id)).size).toBe(2);
+    });
   });
 });

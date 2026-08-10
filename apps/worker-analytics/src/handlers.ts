@@ -86,6 +86,28 @@ export async function handleEquityReconstruction(
         })),
       );
     }
+
+    // Same transaction as the curves, so the event cannot outlive a
+    // rolled-back write nor be lost after a committed one (CLAUDE.md 9.3).
+    // The relay routes it to metric calculation.
+    //
+    // Emitted unconditionally, including for a run with no closed trades:
+    // "no trades" is a legitimate result whose metrics are still worth
+    // recording, and the metrics handler already handles an empty ledger.
+    const now = new Date();
+    await tx.insert(outboxEvents).values({
+      id: generateId<string>(),
+      eventType: "equity.reconstructed",
+      eventVersion: "1.0.0",
+      aggregateId: input.backtestRunId,
+      aggregateVersion: now.getTime().toString(),
+      correlationId: generateId<string>(),
+      actor: "worker-analytics",
+      // MetricCalculationJob needs only the run id; the relay passes this
+      // payload through untouched.
+      payload: { backtestRunId: input.backtestRunId },
+      createdAt: now,
+    });
   });
 
   return {

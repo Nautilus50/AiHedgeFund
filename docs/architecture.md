@@ -62,6 +62,42 @@ storage — never taken from the client (CLAUDE.md 15.1). If parsing then fails,
 the raw artefact and its checksum are still persisted; a rejected parse must
 not cost us the evidence.
 
+### What of that chain is actually wired
+
+The diagram above is the intended flow. Several links are not yet built, and
+the gaps are easy to miss because `routeOutboxEvent` already maps every event
+to a queue — routing exists for events nothing emits, and for queues nothing
+consumes. Current state, end to end:
+
+| Link | Producer | Consumer |
+|---|---|---|
+| `report_upload.parsed` → `trade-normalisation` | **none** | **none** |
+| `trades.normalised` → `equity-reconstruction` | **none** | `worker-analytics` |
+| `equity.reconstructed` → `metric-calculation` | `worker-analytics` | `worker-analytics` |
+| `metrics.calculated` → `parity-calculation` | `worker-analytics` | `worker-analytics` |
+| `strategy_version.transitioned` → `read-model-refresh` | `workflow` | **none** |
+| `committee_decision.created` → `read-model-refresh` | **none** | **none** |
+
+Two tables sit at the centre of the missing stretch: **nothing creates
+`backtest_runs`, and nothing writes `trades`.** A parsed List of Trades is
+discarded after its parse result is returned, so the trade ledger every
+downstream handler reads is never populated by production code. The equity,
+drawdown, metric, and parity handlers are complete and tested, but no
+end-to-end path currently reaches them.
+
+Closing that stretch needs three things, not just the two missing events:
+persisting the parsed trades, a `trade-normalisation` consumer that writes
+the ledger, and a way for a `backtest_runs` row to exist in the first place.
+
+**A run's identity must come from the research plan, not from ingestion.**
+`backtest_runs` requires `segment_kind`, `from_ts`, `to_ts`, `cost_model`,
+`initial_capital`, `source_hash`, and `runner_version`, all NOT NULL. None
+are derivable from a TradingView CSV. A worker that invented them to satisfy
+the schema would be fabricating exactly the provenance that reproducibility
+depends on (CLAUDE.md 4). The intended shape is an explicit API call that
+records those fields from the researcher, with uploads attaching to an
+existing run — not a run conjured during ingestion.
+
 ## Packages
 
 | Package | Owns |
