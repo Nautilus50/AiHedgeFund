@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { apiFetchSafe } from "../../../lib/api";
 import { StateBadge } from "../../../components/Badge";
+import { EquityDrawdownChart } from "../../../components/EquityDrawdownChart";
 import { Alert, Card, CardBody, CardHead, EmptyState, Hash, Timestamp } from "../../../components/primitives";
 
 interface BacktestRunDetail {
@@ -237,98 +238,111 @@ export default async function BacktestRunDetailPage({ params }: { params: Promis
 
       <Card>
         <CardHead
-          title="Equity curve"
+          title="Equity &amp; drawdown"
           hint="Reconstructed from the trade ledger alone, never from a reported summary figure (CLAUDE.md 26)."
         />
         {"error" in equityResult ? (
           <CardBody>
             <Alert tone="error">Could not load the equity curve. {equityResult.error.message}</Alert>
           </CardBody>
-        ) : equityResult.data.items.length === 0 ? (
-          <EmptyState title="No equity points yet" />
-        ) : (
-          (() => {
-            const { rows, truncated } = tail(equityResult.data.items, TAIL_LENGTH);
-            return (
-              <CardBody flush>
-                {truncated && (
-                  <p className="card-hint" style={{ padding: "0 var(--sp-5)" }}>
-                    Showing the last {TAIL_LENGTH} of {equityResult.data.items.length} points.
-                  </p>
-                )}
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Bar time (UTC)</th>
-                        <th>Equity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((point) => (
-                        <tr key={point.sequenceNumber}>
-                          <td className="num">{point.sequenceNumber}</td>
-                          <td>
-                            <Timestamp value={point.barTime} />
-                          </td>
-                          <td className="num">{point.equity}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardBody>
-            );
-          })()
-        )}
-      </Card>
-
-      <Card>
-        <CardHead title="Drawdown curve" />
-        {"error" in drawdownResult ? (
+        ) : "error" in drawdownResult ? (
           <CardBody>
             <Alert tone="error">Could not load the drawdown curve. {drawdownResult.error.message}</Alert>
           </CardBody>
-        ) : drawdownResult.data.items.length === 0 ? (
-          <EmptyState title="No drawdown points yet" />
+        ) : equityResult.data.items.length === 0 && drawdownResult.data.items.length === 0 ? (
+          <EmptyState title="No equity or drawdown points yet" />
         ) : (
-          (() => {
-            const { rows, truncated } = tail(drawdownResult.data.items, TAIL_LENGTH);
-            return (
-              <CardBody flush>
-                {truncated && (
-                  <p className="card-hint" style={{ padding: "0 var(--sp-5)" }}>
-                    Showing the last {TAIL_LENGTH} of {drawdownResult.data.items.length} points.
-                  </p>
-                )}
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Bar time (UTC)</th>
-                        <th>Drawdown</th>
-                        <th>Drawdown %</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((point) => (
-                        <tr key={point.sequenceNumber}>
-                          <td className="num">{point.sequenceNumber}</td>
-                          <td>
-                            <Timestamp value={point.barTime} />
-                          </td>
-                          <td className="num">{point.drawdown}</td>
-                          <td className="num">{point.drawdownPct}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardBody>
-            );
-          })()
+          <>
+            <EquityDrawdownChart
+              equityPoints={equityResult.data.items}
+              drawdownPoints={drawdownResult.data.items}
+              isStale={run.status !== "SUCCEEDED"}
+            />
+
+            <CardBody flush>
+              <details>
+                <summary className="card-hint" style={{ padding: "0 var(--sp-5) var(--sp-3)", cursor: "pointer" }}>
+                  Equity table
+                </summary>
+                {(() => {
+                  const { rows, truncated } = tail(equityResult.data.items, TAIL_LENGTH);
+                  return (
+                    <>
+                      {truncated && (
+                        <p className="card-hint" style={{ padding: "0 var(--sp-5)" }}>
+                          Showing the last {TAIL_LENGTH} of {equityResult.data.items.length} points.
+                        </p>
+                      )}
+                      <div className="table-wrap">
+                        <table className="data">
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Bar time (UTC)</th>
+                              <th>Equity</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((point) => (
+                              <tr key={point.sequenceNumber}>
+                                <td className="num">{point.sequenceNumber}</td>
+                                <td>
+                                  <Timestamp value={point.barTime} />
+                                </td>
+                                <td className="num">{point.equity}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </details>
+
+              <details>
+                <summary className="card-hint" style={{ padding: "0 var(--sp-5) var(--sp-3)", cursor: "pointer" }}>
+                  Drawdown table
+                </summary>
+                {(() => {
+                  const { rows, truncated } = tail(drawdownResult.data.items, TAIL_LENGTH);
+                  return (
+                    <>
+                      {truncated && (
+                        <p className="card-hint" style={{ padding: "0 var(--sp-5)" }}>
+                          Showing the last {TAIL_LENGTH} of {drawdownResult.data.items.length} points.
+                        </p>
+                      )}
+                      <div className="table-wrap">
+                        <table className="data">
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Bar time (UTC)</th>
+                              <th>Drawdown</th>
+                              <th>Drawdown %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((point) => (
+                              <tr key={point.sequenceNumber}>
+                                <td className="num">{point.sequenceNumber}</td>
+                                <td>
+                                  <Timestamp value={point.barTime} />
+                                </td>
+                                <td className="num">{point.drawdown}</td>
+                                <td className="num">{point.drawdownPct}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </details>
+            </CardBody>
+          </>
         )}
       </Card>
 

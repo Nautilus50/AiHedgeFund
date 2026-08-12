@@ -518,7 +518,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Independent metrics, equity, drawdown, parity | Built |
 | API endpoints | Built (campaigns, strategies, verifications, backtest runs, dataset versions, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
 | Ingestion chain | Built — upload → ledger → equity/drawdown → metrics → parity, driven by the outbox |
-| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). No Strategy Library filters yet (state/market/timeframe/parity); no equity/drawdown charts (evidence tables only) |
+| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). Equity/drawdown charts on the backtest-run page (two linked single-axis charts, never one dual-axis chart — spec 15.18); raw evidence tables remain available underneath, collapsed. No Strategy Library filters yet (state/market/timeframe/parity) |
 | Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
@@ -571,9 +571,11 @@ Honest gaps in what is built, beyond the "not started" rows above:
   complete leaves an orphaned object.
 - **No indexes beyond keys and unique constraints.** Query patterns are known
   but unmeasured; CLAUDE.md 9.2 says index real patterns, not speculation.
-- **The frontend is functional, not designed.** Unstyled forms and tables; no
-  charts, and none of the evidence-labelling rules in spec 15 are implemented
-  in the UI yet.
+- **The frontend is functional, not designed.** Unstyled forms and tables.
+  Equity/drawdown now render as linked charts (backtest-run page), but none
+  of the other evidence-labelling rules in spec 15 (in-sample/validation/
+  holdout/forward badges, gross vs net, simulated vs paper vs TradingView)
+  are implemented in the UI yet.
 - **The local runner executes SDL expressions, not generated Pine source**,
   and only a constrained, entirely stateless grammar of them (eight `ta.*`
   functions including `highest`/`lowest`/`atr`, historical `[n]` offsets,
