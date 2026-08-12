@@ -16,6 +16,7 @@ export type ArtefactId = string & { readonly __brand: "ArtefactId" };
 export type TradingViewVerificationId = string & { readonly __brand: "TradingViewVerificationId" };
 export type ReportUploadId = string & { readonly __brand: "ReportUploadId" };
 export type BacktestRunId = string & { readonly __brand: "BacktestRunId" };
+export type DatasetVersionId = string & { readonly __brand: "DatasetVersionId" };
 export type TradeId = string & { readonly __brand: "TradeId" };
 export type MetricSnapshotId = string & { readonly __brand: "MetricSnapshotId" };
 export type ParityReportId = string & { readonly __brand: "ParityReportId" };

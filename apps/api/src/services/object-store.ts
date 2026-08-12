@@ -51,6 +51,38 @@ export function buildArtefactKey(input: ArtefactKeyInput): string {
   ].join("/");
 }
 
+export interface DatasetKeyInput {
+  organisationId: string;
+  datasetVersionId: string;
+  filename: string;
+}
+
+/**
+ * Dataset object keys aren't strategy-scoped like {@link buildArtefactKey}'s
+ * layout — a dataset is reusable market data, not evidence tied to one
+ * strategy version — so it gets its own, simpler org-scoped path
+ * (CLAUDE.md 19: protect object paths by organisation).
+ */
+export function buildDatasetKey(input: DatasetKeyInput): string {
+  return ["orgs", input.organisationId, "datasets", input.datasetVersionId, input.filename].join("/");
+}
+
+/**
+ * Direct upload of bytes already held in-process (seeding a fixture
+ * dataset, a test setup) — unlike {@link createPresignedUploadUrl}, this is
+ * not for client-originated file uploads, which must still go through a
+ * presigned PUT so the API never proxies file bytes (CLAUDE.md 15.1).
+ */
+export async function putObject(
+  client: S3Client,
+  bucket: string,
+  objectKey: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType }));
+}
+
 export interface PresignedUpload {
   uploadUrl: string;
   objectKey: string;

@@ -19,7 +19,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@arf-os/contracts": "workspace:*"
+    "@arf-os/contracts": "workspace:*",
+    "@arf-os/pine": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

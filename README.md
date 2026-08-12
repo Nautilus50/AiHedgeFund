@@ -4,7 +4,7 @@
 
 **A multi-agent operating system for discovering, developing, testing, rejecting, forward-testing, and cataloguing systematic trading strategies.**
 
-> **Project status:** Evidence-registry slice built and deployed · Pine runner, forward testing, and validation lab not started  
+> **Project status:** Evidence-registry slice built and deployed · Local Pine runner: first vertical slice built · forward testing and validation lab not started  
 > **Strategy language:** Pine Script® v6  
 > **Primary stack:** TypeScript · Next.js · Fastify · PostgreSQL · Redis · BullMQ  
 > **Deployment:** Railway — see [`docs/railway-deploy.md`](./docs/railway-deploy.md)
@@ -516,12 +516,12 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Object storage and presigned uploads | Built (S3-compatible) |
 | TradingView CSV ingestion | Built (both export variants, versioned parsers) |
 | Independent metrics, equity, drawdown, parity | Built |
-| API endpoints | Built (campaigns, strategies, verifications, backtest runs, decisions, audit) |
+| API endpoints | Built (campaigns, strategies, verifications, backtest runs, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
 | Ingestion chain | Built — upload → ledger → equity/drawdown → metrics → parity, driven by the outbox |
-| Frontend screens | Built — minimal, unstyled |
+| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail. No Strategy Library filters yet (state/market/timeframe/parity); no equity/drawdown charts (evidence tables only) |
 | Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
-| Local Pine runner (`backtest-sdk`) | Not started |
+| Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | Not started |
 | Validation lab, practice arena, portfolio research | Not started |
 | Live execution | Intentionally out of scope |
@@ -574,6 +574,19 @@ Honest gaps in what is built, beyond the "not started" rows above:
 - **The frontend is functional, not designed.** Unstyled forms and tables; no
   charts, and none of the evidence-labelling rules in spec 15 are implemented
   in the UI yet.
+- **The local runner executes SDL expressions, not generated Pine source**,
+  and only a constrained, entirely stateless grammar of them (eight `ta.*`
+  functions including `highest`/`lowest`/`atr`, historical `[n]` offsets,
+  `fixed_percent` and one-time `atr_multiple` stops, optional no-target
+  exits, `market_next_bar` entries, no session filtering, no nonzero tick
+  slippage, **no persistent/stateful variables** — so no ratcheting trailing
+  stops, no non-resetting drawdown halts). `RunnerCapabilities` states the
+  limits; anything outside them fails at `compile()` rather than running
+  silently wrong. See [ADR 0005](docs/adr/0005-local-pine-runner.md).
+- **There is no dataset ingestion API.** `dataset_versions` exists and one
+  golden fixture is seeded for tests, but uploading real OHLCV data has no
+  route yet — a `LOCAL_RUNNER` backtest run can only reference a dataset
+  that was inserted directly.
 
 ---
 

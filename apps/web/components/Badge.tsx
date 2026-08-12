@@ -62,6 +62,22 @@ const VERIFICATION_TONE: Record<string, BadgeTone> = {
   INVESTIGATION_REQUIRED: "warn",
 };
 
+const RUN_STATUS_TONE: Record<string, BadgeTone> = {
+  QUEUED: "neutral",
+  RUNNING: "info",
+  SUCCEEDED: "ok",
+  FAILED_RETRYABLE: "warn",
+  FAILED_TERMINAL: "danger",
+  CANCELLED: "neutral",
+};
+
+const PARITY_TONE: Record<string, BadgeTone> = {
+  PASS: "ok",
+  WARN: "warn",
+  FAIL: "danger",
+  INSUFFICIENT_DATA: "neutral",
+};
+
 function humanise(state: string): string {
   return state.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
@@ -71,7 +87,7 @@ export function StateBadge({
   kind = "workflow",
 }: {
   state: string;
-  kind?: "workflow" | "campaign" | "parse" | "verification";
+  kind?: "workflow" | "campaign" | "parse" | "verification" | "runStatus" | "parity";
 }) {
   const map =
     kind === "campaign"
@@ -80,7 +96,11 @@ export function StateBadge({
         ? PARSE_TONE
         : kind === "verification"
           ? VERIFICATION_TONE
-          : WORKFLOW_TONE;
+          : kind === "runStatus"
+            ? RUN_STATUS_TONE
+            : kind === "parity"
+              ? PARITY_TONE
+              : WORKFLOW_TONE;
 
   return <Badge tone={map[state] ?? "neutral"}>{humanise(state)}</Badge>;
 }

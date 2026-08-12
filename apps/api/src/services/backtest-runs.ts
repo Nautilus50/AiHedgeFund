@@ -1,13 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { generateId } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { backtestRuns, strategies, strategyVersions, tradingviewVerifications } from "@arf-os/db";
+import { backtestRuns, datasetVersions, outboxEvents, strategies, strategyVersions, tradingviewVerifications } from "@arf-os/db";
 
 export interface CreateBacktestRunInput {
   strategyVersionId: string;
   runnerType: "LOCAL_RUNNER" | "TRADINGVIEW";
   runnerVersion: string;
   verificationId?: string | undefined;
+  datasetVersionId?: string | undefined;
   symbol: string;
   timeframe: string;
   segmentKind: string;
@@ -17,6 +18,7 @@ export interface CreateBacktestRunInput {
   initialCapital: string;
   sourceHash: string;
   environmentHash?: string | undefined;
+  actor: string;
 }
 
 /**
@@ -35,24 +37,61 @@ export async function createBacktestRun(
 ): Promise<{ backtestRunId: string }> {
   const backtestRunId = generateId<string>();
 
-  await db.insert(backtestRuns).values({
-    id: backtestRunId,
-    strategyVersionId: input.strategyVersionId,
-    runnerType: input.runnerType,
-    runnerVersion: input.runnerVersion,
-    verificationId: input.verificationId ?? null,
-    symbol: input.symbol,
-    timeframe: input.timeframe,
-    segmentKind: input.segmentKind,
-    fromTs: input.fromTs,
-    toTs: input.toTs,
-    costModel: input.costModel,
-    initialCapital: input.initialCapital,
-    sourceHash: input.sourceHash,
-    environmentHash: input.environmentHash ?? null,
+  await db.transaction(async (tx) => {
+    await tx.insert(backtestRuns).values({
+      id: backtestRunId,
+      strategyVersionId: input.strategyVersionId,
+      runnerType: input.runnerType,
+      runnerVersion: input.runnerVersion,
+      verificationId: input.verificationId ?? null,
+      datasetVersionId: input.datasetVersionId ?? null,
+      symbol: input.symbol,
+      timeframe: input.timeframe,
+      segmentKind: input.segmentKind,
+      fromTs: input.fromTs,
+      toTs: input.toTs,
+      costModel: input.costModel,
+      initialCapital: input.initialCapital,
+      sourceHash: input.sourceHash,
+      environmentHash: input.environmentHash ?? null,
+    });
+
+    // Transactional outbox (CLAUDE.md 9.3): committed with the run it
+    // describes. TradingView runs get no event — that path is driven by
+    // report upload, not run creation.
+    if (input.runnerType === "LOCAL_RUNNER") {
+      const now = new Date();
+      await tx.insert(outboxEvents).values({
+        id: generateId<string>(),
+        eventType: "backtest_run.local_execution_requested",
+        eventVersion: "1.0.0",
+        aggregateId: backtestRunId,
+        aggregateVersion: now.getTime().toString(),
+        correlationId: generateId<string>(),
+        actor: input.actor,
+        // LocalRunnerExecutionJob's exact shape.
+        payload: { backtestRunId },
+        createdAt: now,
+      });
+    }
   });
 
   return { backtestRunId };
+}
+
+/** Organisation-scoped existence check, mirroring `verificationMatchesVersion`'s ownership pattern. */
+export async function datasetVersionBelongsToOrg(
+  db: Database,
+  organisationId: string,
+  datasetVersionId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: datasetVersions.id })
+    .from(datasetVersions)
+    .where(and(eq(datasetVersions.id, datasetVersionId), eq(datasetVersions.organisationId, organisationId)))
+    .limit(1);
+
+  return row !== undefined;
 }
 
 /**
@@ -76,6 +115,9 @@ export async function getBacktestRun(db: Database, organisationId: string, backt
       initialCapital: backtestRuns.initialCapital,
       status: backtestRuns.status,
       sourceHash: backtestRuns.sourceHash,
+      errorCode: backtestRuns.errorCode,
+      startedAt: backtestRuns.startedAt,
+      completedAt: backtestRuns.completedAt,
       createdAt: backtestRuns.createdAt,
     })
     .from(backtestRuns)

@@ -176,6 +176,21 @@ p {
   margin-left: var(--sp-2);
 }
 
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.app-nav a {
+  color: var(--c-text-faint);
+  font-size: 13px;
+  font-weight: 550;
+}
+.app-nav a:hover {
+  color: var(--c-text);
+  text-decoration: none;
+}
+
 .app-header-spacer {
   flex: 1;
 }

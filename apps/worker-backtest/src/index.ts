@@ -3,13 +3,15 @@ import { createDatabase } from "@arf-os/db";
 import {
   BullMqPublisher,
   DrizzleOutboxStore,
+  LocalRunnerExecutionJob,
   QUEUE_NAMES,
   TradeNormalisationJob,
   parseRedisUrl,
   relayOutboxBatch,
 } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
-import { handleTradeNormalisation } from "./handlers.js";
+import { handleLocalRunnerExecution, handleTradeNormalisation } from "./handlers.js";
+import { createObjectStoreClient } from "./object-store.js";
 
 try {
   process.loadEnvFile();
@@ -46,6 +48,14 @@ async function main() {
   const store = new DrizzleOutboxStore(db);
   const publisher = new BullMqPublisher(connection);
 
+  const bucket = requireEnv("OBJECT_STORE_BUCKET");
+  const s3 = createObjectStoreClient({
+    endpoint: requireEnv("OBJECT_STORE_ENDPOINT"),
+    accessKeyId: requireEnv("OBJECT_STORE_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("OBJECT_STORE_SECRET_ACCESS_KEY"),
+    region: process.env.OBJECT_STORE_REGION,
+  });
+
   const normalisationWorker = new Worker(
     QUEUE_NAMES.tradeNormalisation,
     async (job) => {
@@ -61,12 +71,28 @@ async function main() {
     logger.error({ jobId: job?.id, queue: QUEUE_NAMES.tradeNormalisation, err: error }, "job failed");
   });
 
+  const localRunnerWorker = new Worker(
+    QUEUE_NAMES.localRunnerExecution,
+    async (job) => {
+      const input = LocalRunnerExecutionJob.parse(job.data);
+      const result = await handleLocalRunnerExecution(db, { s3, bucket }, input);
+      logger.info({ jobId: job.id, ...input, ...result }, "local backtest run executed");
+      return result;
+    },
+    { connection },
+  );
+
+  localRunnerWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, queue: QUEUE_NAMES.localRunnerExecution, err: error }, "job failed");
+  });
+
   let running = true;
 
   const shutdown = async () => {
     logger.info("shutting down");
     running = false;
     await normalisationWorker.close();
+    await localRunnerWorker.close();
     await publisher.close();
     process.exit(0);
   };
@@ -87,7 +113,11 @@ async function main() {
   reclaimTimer.unref();
 
   logger.info(
-    { pollIntervalMs: POLL_INTERVAL_MS, batchSize: BATCH_SIZE, queues: [QUEUE_NAMES.tradeNormalisation] },
+    {
+      pollIntervalMs: POLL_INTERVAL_MS,
+      batchSize: BATCH_SIZE,
+      queues: [QUEUE_NAMES.tradeNormalisation, QUEUE_NAMES.localRunnerExecution],
+    },
     "outbox relay started",
   );
 

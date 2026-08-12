@@ -19,6 +19,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 ARF-OS
                 <span className="app-brand-mark">research console</span>
               </Link>
+              <nav className="app-nav">
+                <Link href="/">Command Centre</Link>
+                <Link href="/strategies">Strategy Library</Link>
+              </nav>
               <div className="app-header-spacer" />
               <div className="app-header-actions">
                 <OrganizationSwitcher

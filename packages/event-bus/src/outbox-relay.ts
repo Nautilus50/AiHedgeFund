@@ -32,6 +32,12 @@ export function routeOutboxEvent(row: OutboxRow): RoutedJob | undefined {
         jobId: deterministicJobId(QUEUE_NAMES.tradeNormalisation, row.id),
         data: row.payload,
       };
+    case "backtest_run.local_execution_requested":
+      return {
+        queue: QUEUE_NAMES.localRunnerExecution,
+        jobId: deterministicJobId(QUEUE_NAMES.localRunnerExecution, row.id),
+        data: row.payload,
+      };
     case "trades.normalised":
       return {
         queue: QUEUE_NAMES.equityReconstruction,

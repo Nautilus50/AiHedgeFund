@@ -1,9 +1,26 @@
 import { z } from "zod";
 
-const RiskLevel = z.object({
-  type: z.enum(["atr_multiple", "risk_multiple", "fixed_ticks", "fixed_percent"]),
-  valueParameter: z.string().min(1),
-});
+/**
+ * `"none"` means no level of this kind at all — e.g. a trailing-stop-only
+ * strategy with no fixed take-profit. `valueParameter` is required for
+ * every other type; `atrLengthParameter` is required only for
+ * `"atr_multiple"`, naming the SDL parameter that holds the ATR period
+ * (distinct from `valueParameter`, which holds the multiple).
+ */
+const RiskLevel = z
+  .object({
+    type: z.enum(["atr_multiple", "risk_multiple", "fixed_ticks", "fixed_percent", "none"]),
+    valueParameter: z.string().min(1).optional(),
+    atrLengthParameter: z.string().min(1).optional(),
+  })
+  .refine((r) => r.type === "none" || r.valueParameter !== undefined, {
+    message: 'valueParameter is required unless type is "none"',
+    path: ["valueParameter"],
+  })
+  .refine((r) => r.type !== "atr_multiple" || r.atrLengthParameter !== undefined, {
+    message: 'atrLengthParameter is required when type is "atr_multiple"',
+    path: ["atrLengthParameter"],
+  });
 
 const Parameter = z
   .object({

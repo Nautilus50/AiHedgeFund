@@ -24,6 +24,13 @@ export const BacktestSegmentKind = z.enum([
 ]);
 export type BacktestSegmentKind = z.infer<typeof BacktestSegmentKind>;
 
+export const CostModel = z.object({
+  commissionType: z.enum(["percent", "cash_per_order", "cash_per_contract"]),
+  commissionValue: z.number().min(0),
+  slippageTicks: z.number().int().min(0),
+});
+export type CostModel = z.infer<typeof CostModel>;
+
 /** A reproducible backtest plan (spec 7.6, CLAUDE_CODE_BUILD_PROMPT.md). */
 export const BacktestPlan = z.object({
   strategyVersionId: z.string().uuid(),
@@ -33,11 +40,7 @@ export const BacktestPlan = z.object({
   segmentKind: BacktestSegmentKind,
   fromTs: z.string().datetime(),
   toTs: z.string().datetime(),
-  costModel: z.object({
-    commissionType: z.enum(["percent", "cash_per_order", "cash_per_contract"]),
-    commissionValue: z.number().min(0),
-    slippageTicks: z.number().int().min(0),
-  }),
+  costModel: CostModel,
   initialCapital: z.number().positive(),
 });
 export type BacktestPlan = z.infer<typeof BacktestPlan>;

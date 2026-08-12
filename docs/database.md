@@ -46,8 +46,9 @@ at the constraint instead of silently overwriting tested evidence
 | `artefacts` | Object-store pointer with server-computed `checksum_sha256` |
 | `tradingview_verifications` | Human-assisted verification task |
 | `report_uploads` | Per-file parse status, parser version, warnings, and what the report itself stated (`parsed_metrics`, `parsed_trades`) |
-| `backtest_runs` | Run identity: runner, version, symbol, window, cost model |
-| `trades` | Reconstructed trade ledger, written by `worker-backtest` from `parsed_trades` |
+| `dataset_versions` | Versioned, checksummed OHLCV bar series backing `LOCAL_RUNNER` runs; bytes in `artefacts`, identity here |
+| `backtest_runs` | Run identity: runner, version, symbol, window, cost model, `dataset_version_id` (LOCAL_RUNNER only) |
+| `trades` | Reconstructed trade ledger, written by `worker-backtest` — from `parsed_trades` for a TRADINGVIEW run, or from the local runner's simulated output for a LOCAL_RUNNER run |
 | `equity_points` / `drawdown_points` | Reconstructed curves |
 | `metric_snapshots` | One row per metric, with unit and calculation version |
 | `parity_reports` | Local vs TradingView comparison, written by `worker-analytics` |
@@ -126,6 +127,7 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0002_swift_jetstream` | `outbox_status` gains `PUBLISHING` |
 | `0003_regular_omega_sentinel` | `report_uploads.parsed_metrics` |
 | `0004_glamorous_wind_dancer` | `report_uploads.parsed_trades` |
+| `0005_needy_scarlet_spider` | `dataset_versions` table; `backtest_runs.dataset_version_id` |
 
 ## Indexes
 

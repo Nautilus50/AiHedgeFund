@@ -9,6 +9,7 @@ export const QUEUE_NAMES = {
   parityCalculation: "parity-calculation",
   readModelRefresh: "read-model-refresh",
   agentRun: "agent-run",
+  localRunnerExecution: "local-runner-execution",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -51,6 +52,11 @@ export const ReadModelRefreshJob = z.object({
   aggregateId: z.string().uuid(),
 });
 export type ReadModelRefreshJob = z.infer<typeof ReadModelRefreshJob>;
+
+export const LocalRunnerExecutionJob = z.object({
+  backtestRunId: z.string().uuid(),
+});
+export type LocalRunnerExecutionJob = z.infer<typeof LocalRunnerExecutionJob>;
 
 export const AgentRunJob = z.object({
   campaignId: z.string().uuid(),

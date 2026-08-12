@@ -3,6 +3,7 @@ export * from "./campaigns.js";
 export * from "./strategy.js";
 export * from "./artefacts.js";
 export * from "./verification.js";
+export * from "./datasets.js";
 export * from "./backtest.js";
 export * from "./governance.js";
 export * from "./system.js";

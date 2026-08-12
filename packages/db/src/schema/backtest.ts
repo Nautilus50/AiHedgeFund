@@ -1,4 +1,5 @@
 import { integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { datasetVersions } from "./datasets.js";
 import { strategyVersions } from "./strategy.js";
 import { tradingviewVerifications } from "./verification.js";
 
@@ -21,6 +22,9 @@ export const backtestRuns = pgTable("backtest_runs", {
   runnerType: backtestRunnerTypeEnum("runner_type").notNull(),
   runnerVersion: text("runner_version").notNull(),
   verificationId: uuid("verification_id").references(() => tradingviewVerifications.id),
+  // Required only for LOCAL_RUNNER runs (enforced at the API layer, not the
+  // DB — a TRADINGVIEW run has no local dataset to point at).
+  datasetVersionId: uuid("dataset_version_id").references(() => datasetVersions.id),
   symbol: text("symbol").notNull(),
   timeframe: text("timeframe").notNull(),
   segmentKind: text("segment_kind").notNull(),

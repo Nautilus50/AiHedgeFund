@@ -32,15 +32,30 @@ interface AuditEvent {
   createdAt: string;
 }
 
+interface BacktestRunSummary {
+  id: string;
+  runnerType: string;
+  symbol: string;
+  timeframe: string;
+  segmentKind: string;
+  status: string;
+  createdAt: string;
+}
+
+interface BacktestRunPage {
+  items: BacktestRunSummary[];
+}
+
 const TERMINAL_STATES = new Set(["PAPER_APPROVED", "REJECTED"]);
 
 export default async function StrategyVersionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [versionResult, lineageResult, auditResult] = await Promise.all([
+  const [versionResult, lineageResult, auditResult, runsResult] = await Promise.all([
     apiFetchSafe<StrategyVersionDetail>(`/v1/strategy-versions/${id}`),
     apiFetchSafe<LineageEntry[]>(`/v1/strategy-versions/${id}/lineage`),
     apiFetchSafe<AuditEvent[]>(`/v1/strategy-versions/${id}/audit`),
+    apiFetchSafe<BacktestRunPage>(`/v1/strategy-versions/${id}/backtest-runs`),
   ]);
 
   if ("error" in versionResult) {
@@ -144,6 +159,57 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
                       </td>
                       <td>
                         <Timestamp value={entry.createdAt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Backtest runs"
+          hint="Trades, equity, drawdown, metrics, and parity are read per run — open a run to see its evidence."
+        />
+        {"error" in runsResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load backtest runs. {runsResult.error.message}</Alert>
+          </CardBody>
+        ) : runsResult.data.items.length === 0 ? (
+          <EmptyState title="No backtest runs yet">
+            Create one via the API (`POST /v1/backtest-runs`) to see trades, equity, and metrics here.
+          </EmptyState>
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Runner</th>
+                    <th>Symbol / timeframe</th>
+                    <th>Segment</th>
+                    <th>Status</th>
+                    <th>Created (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runsResult.data.items.map((run) => (
+                    <tr key={run.id}>
+                      <td>
+                        <Link href={`/backtest-runs/${run.id}`}>{run.runnerType}</Link>
+                      </td>
+                      <td className="mono">
+                        {run.symbol} / {run.timeframe}
+                      </td>
+                      <td>{run.segmentKind}</td>
+                      <td>
+                        <StateBadge state={run.status} kind="runStatus" />
+                      </td>
+                      <td>
+                        <Timestamp value={run.createdAt} />
                       </td>
                     </tr>
                   ))}

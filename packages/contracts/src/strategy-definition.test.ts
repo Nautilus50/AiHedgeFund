@@ -32,7 +32,7 @@ const validDefinition = {
     sizingModel: "percent_of_equity",
     sizePercent: 10,
     leverage: 3,
-    stopLoss: { type: "atr_multiple", valueParameter: "stop_atr" },
+    stopLoss: { type: "atr_multiple", valueParameter: "stop_atr", atrLengthParameter: "stop_atr_len" },
     takeProfit: { type: "risk_multiple", valueParameter: "target_r" },
     oneStopOneTarget: true,
   },
@@ -77,6 +77,30 @@ describe("StrategyDefinition", () => {
 
   it("rejects an empty falsification list (spec 9.1 requires pre-registered failure conditions)", () => {
     const result = StrategyDefinition.safeParse({ ...validDefinition, falsification: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a stop-only strategy (takeProfit.type = \"none\")", () => {
+    const result = StrategyDefinition.safeParse({
+      ...validDefinition,
+      risk: { ...validDefinition.risk, takeProfit: { type: "none" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects atr_multiple without atrLengthParameter", () => {
+    const result = StrategyDefinition.safeParse({
+      ...validDefinition,
+      risk: { ...validDefinition.risk, stopLoss: { type: "atr_multiple", valueParameter: "stop_atr" } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-\"none\" risk level with no valueParameter", () => {
+    const result = StrategyDefinition.safeParse({
+      ...validDefinition,
+      risk: { ...validDefinition.risk, takeProfit: { type: "fixed_percent" } },
+    });
     expect(result.success).toBe(false);
   });
 });

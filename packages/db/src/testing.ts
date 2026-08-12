@@ -107,6 +107,7 @@ const TABLES = [
   "equity_points",
   "trades",
   "backtest_runs",
+  "dataset_versions",
   "report_uploads",
   "tradingview_verifications",
   "artefacts",

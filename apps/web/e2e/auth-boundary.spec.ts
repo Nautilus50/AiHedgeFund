@@ -10,7 +10,9 @@ const PROTECTED_ROUTES = [
   { path: "/", name: "Command Centre" },
   { path: "/campaigns/new", name: "New campaign" },
   { path: "/campaigns/00000000-0000-0000-0000-000000000000", name: "Campaign detail" },
+  { path: "/strategies", name: "Strategy Library" },
   { path: "/strategy-versions/00000000-0000-0000-0000-000000000000", name: "Strategy version detail" },
+  { path: "/backtest-runs/00000000-0000-0000-0000-000000000000", name: "Backtest run detail" },
   { path: "/verifications/00000000-0000-0000-0000-000000000000", name: "Verification upload" },
 ];
 

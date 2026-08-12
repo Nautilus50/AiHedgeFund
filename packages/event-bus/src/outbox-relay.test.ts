@@ -62,6 +62,12 @@ describe("routeOutboxEvent", () => {
     expect(routeOutboxEvent(row({ eventType: "metrics.calculated" }))?.queue).toBe(QUEUE_NAMES.parityCalculation);
   });
 
+  it("routes backtest_run.local_execution_requested to local runner execution", () => {
+    expect(routeOutboxEvent(row({ eventType: "backtest_run.local_execution_requested" }))?.queue).toBe(
+      QUEUE_NAMES.localRunnerExecution,
+    );
+  });
+
   it("routes workflow and decision events to read-model refresh", () => {
     expect(routeOutboxEvent(row({ eventType: "strategy_version.transitioned" }))?.queue).toBe(
       QUEUE_NAMES.readModelRefresh,
