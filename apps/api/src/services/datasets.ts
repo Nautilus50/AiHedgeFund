@@ -1,8 +1,10 @@
 import type { S3Client } from "@aws-sdk/client-s3";
+import { and, eq, gt, or } from "drizzle-orm";
 import { generateId, sha256Hex } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import { artefacts, datasetVersions } from "@arf-os/db";
 import { parseOhlcvCsv } from "@arf-os/pine";
+import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
 import { buildDatasetKey, putObject } from "./object-store.js";
 
 export interface CreateDatasetVersionInput {
@@ -75,4 +77,70 @@ export async function createDatasetVersion(
   });
 
   return { datasetVersionId };
+}
+
+export interface ListDatasetVersionsInput {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export type ListDatasetVersionsResult =
+  | {
+      ok: true;
+      page: Page<{
+        id: string;
+        symbol: string;
+        timeframe: string;
+        fromTs: Date;
+        toTs: Date;
+        barCount: number;
+        createdAt: Date;
+      }>;
+    }
+  | { ok: false; reasonCode: "INVALID_CURSOR" };
+
+/**
+ * Org-scoped list backing the Backtest Lab's dataset picker — the only way
+ * a researcher can see what's available to launch a LOCAL_RUNNER run
+ * against, short of asking someone to read the database directly.
+ */
+export async function listDatasetVersions(
+  db: Database,
+  organisationId: string,
+  input: ListDatasetVersionsInput,
+): Promise<ListDatasetVersionsResult> {
+  const limit = clampPageSize(input.limit);
+
+  let cursorClause;
+  if (input.cursor) {
+    const decoded = decodeCursor(input.cursor);
+    if (!decoded.ok) {
+      return { ok: false, reasonCode: "INVALID_CURSOR" };
+    }
+    const { createdAtIso, id } = decoded.cursor;
+    const createdAtDate = new Date(createdAtIso);
+    cursorClause = or(
+      gt(datasetVersions.createdAt, createdAtDate),
+      and(eq(datasetVersions.createdAt, createdAtDate), gt(datasetVersions.id, id)),
+    );
+  }
+
+  const baseClause = eq(datasetVersions.organisationId, organisationId);
+
+  const rows = await db
+    .select({
+      id: datasetVersions.id,
+      symbol: datasetVersions.symbol,
+      timeframe: datasetVersions.timeframe,
+      fromTs: datasetVersions.fromTs,
+      toTs: datasetVersions.toTs,
+      barCount: datasetVersions.barCount,
+      createdAt: datasetVersions.createdAt,
+    })
+    .from(datasetVersions)
+    .where(cursorClause ? and(baseClause, cursorClause) : baseClause)
+    .orderBy(datasetVersions.createdAt, datasetVersions.id)
+    .limit(limit + 1);
+
+  return { ok: true, page: buildPage(rows, limit) };
 }

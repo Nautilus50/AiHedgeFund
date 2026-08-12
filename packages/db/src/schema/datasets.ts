@@ -27,5 +27,14 @@ export const datasetVersions = pgTable("dataset_versions", {
   artefactId: uuid("artefact_id")
     .notNull()
     .references(() => artefacts.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 (milliseconds) is deliberate, not decorative: cursor
+  // pagination (packages such as this one's listDatasetVersions) round-trips
+  // this column through a JS `Date`, which cannot represent Postgres's
+  // default microsecond precision. Without capping the column at the same
+  // precision the cursor can hold, `gt(createdAt, cursorDate)` is spuriously
+  // true for the cursor row's *own* record (its real value has residual
+  // microseconds greater than the millisecond-truncated cursor), duplicating
+  // it onto the next page. Confirmed via a failing pagination test before
+  // this fix.
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });

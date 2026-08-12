@@ -516,12 +516,12 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Object storage and presigned uploads | Built (S3-compatible) |
 | TradingView CSV ingestion | Built (both export variants, versioned parsers) |
 | Independent metrics, equity, drawdown, parity | Built |
-| API endpoints | Built (campaigns, strategies, verifications, backtest runs, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
+| API endpoints | Built (campaigns, strategies, verifications, backtest runs, dataset versions, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
 | Ingestion chain | Built — upload → ledger → equity/drawdown → metrics → parity, driven by the outbox |
-| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail. No Strategy Library filters yet (state/market/timeframe/parity); no equity/drawdown charts (evidence tables only) |
+| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). No Strategy Library filters yet (state/market/timeframe/parity); no equity/drawdown charts (evidence tables only) |
 | Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
-| Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
+| Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | Not started |
 | Validation lab, practice arena, portfolio research | Not started |
 | Live execution | Intentionally out of scope |

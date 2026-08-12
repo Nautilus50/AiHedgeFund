@@ -173,6 +173,13 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
         <CardHead
           title="Backtest runs"
           hint="Trades, equity, drawdown, metrics, and parity are read per run — open a run to see its evidence."
+          actions={
+            !isTerminal && hasPine ? (
+              <Link href={`/strategy-versions/${id}/backtest-runs/new`} className="btn btn-primary">
+                New backtest run
+              </Link>
+            ) : undefined
+          }
         />
         {"error" in runsResult ? (
           <CardBody>
@@ -180,7 +187,13 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
           </CardBody>
         ) : runsResult.data.items.length === 0 ? (
           <EmptyState title="No backtest runs yet">
-            Create one via the API (`POST /v1/backtest-runs`) to see trades, equity, and metrics here.
+            {isTerminal ? (
+              "This version is terminal — no new runs can be launched against it."
+            ) : hasPine ? (
+              <Link href={`/strategy-versions/${id}/backtest-runs/new`}>Launch one against the local runner</Link>
+            ) : (
+              "Save a Pine source revision first — a run's source hash is what makes its result reproducible."
+            )}
           </EmptyState>
         ) : (
           <CardBody flush>

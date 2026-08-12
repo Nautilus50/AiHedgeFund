@@ -128,6 +128,7 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0003_regular_omega_sentinel` | `report_uploads.parsed_metrics` |
 | `0004_glamorous_wind_dancer` | `report_uploads.parsed_trades` |
 | `0005_needy_scarlet_spider` | `dataset_versions` table; `backtest_runs.dataset_version_id` |
+| `0006_legal_wither` | `dataset_versions.created_at` narrowed to millisecond precision — fixes a cursor-pagination bug where the boundary row duplicated onto the next page (Postgres's default microsecond precision doesn't round-trip through a JS `Date`) |
 
 ## Indexes
 
