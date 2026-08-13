@@ -1,8 +1,8 @@
-import { and, eq, gt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { generateId } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { backtestRuns, campaigns, committeeDecisions, strategies, strategyVersions } from "@arf-os/db";
+import { auditEvents, backtestRuns, campaigns, committeeDecisions, strategies, strategyVersions } from "@arf-os/db";
 import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
 
 export const CreateCampaignInput = z.object({
@@ -154,6 +154,58 @@ export async function getCampaignSummary(
     pendingCommitteeDecisions: byWorkflowState["PAPER_APPROVAL_REVIEW"] ?? 0,
     lastActivityAt,
   };
+}
+
+export interface CampaignAuditEvent {
+  id: string;
+  actor: string;
+  action: string;
+  strategyVersionId: string;
+  strategyName: string;
+  priorStateSummary: unknown;
+  newStateSummary: unknown;
+  reason: string | null;
+  createdAt: Date;
+}
+
+/**
+ * Every workflow transition across the campaign's strategies, newest first
+ * (spec 15's Campaign Detail task-timeline/audit section). Reads
+ * `audit_events` directly rather than a new table — every transition
+ * `packages/workflow`'s `applyTransition` makes already writes one row
+ * there in the same transaction as the transition itself (CLAUDE.md 9.3),
+ * with the actor, before/after state, and reason a timeline needs. A
+ * committee decision shows up here too: recording one always transitions
+ * the version in the same atomic operation (CLAUDE.md 9.3), so its own
+ * audit row already carries the decision's effect.
+ */
+export async function listCampaignAuditEvents(
+  db: Database,
+  organisationId: string,
+  campaignId: string,
+  limit: number,
+): Promise<CampaignAuditEvent[] | undefined> {
+  const campaign = await getCampaign(db, organisationId, campaignId);
+  if (!campaign) return undefined;
+
+  return db
+    .select({
+      id: auditEvents.id,
+      actor: auditEvents.actor,
+      action: auditEvents.action,
+      strategyVersionId: auditEvents.aggregateId,
+      strategyName: strategies.name,
+      priorStateSummary: auditEvents.priorStateSummary,
+      newStateSummary: auditEvents.newStateSummary,
+      reason: auditEvents.reason,
+      createdAt: auditEvents.createdAt,
+    })
+    .from(auditEvents)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, auditEvents.aggregateId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(and(eq(auditEvents.aggregateType, "strategy_version"), eq(strategies.campaignId, campaignId)))
+    .orderBy(desc(auditEvents.createdAt))
+    .limit(limit);
 }
 
 export interface ListCampaignsInput {

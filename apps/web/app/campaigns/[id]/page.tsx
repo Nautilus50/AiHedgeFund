@@ -29,6 +29,18 @@ interface CommitteeQueueItem {
   refreshedAt: string;
 }
 
+interface AuditEvent {
+  id: string;
+  actor: string;
+  action: string;
+  strategyVersionId: string;
+  strategyName: string;
+  priorStateSummary: { workflowState?: string } | null;
+  newStateSummary: { workflowState?: string } | null;
+  reason: string | null;
+  createdAt: string;
+}
+
 interface StrategyListItem {
   id: string;
   name: string;
@@ -44,11 +56,12 @@ interface StrategyPage {
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaignResult, strategiesResult, summaryResult, queueResult] = await Promise.all([
+  const [campaignResult, strategiesResult, summaryResult, queueResult, auditResult] = await Promise.all([
     apiFetchSafe<CampaignDetail>(`/v1/campaigns/${id}`),
     apiFetchSafe<StrategyPage>(`/v1/strategies?campaignId=${id}`),
     apiFetchSafe<CampaignSummary>(`/v1/campaigns/${id}/summary`),
     apiFetchSafe<{ items: CommitteeQueueItem[] }>(`/v1/committee-queue?campaignId=${id}`),
+    apiFetchSafe<{ items: AuditEvent[] }>(`/v1/campaigns/${id}/audit-events`),
   ]);
 
   if ("error" in campaignResult) {
@@ -210,6 +223,63 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                         ) : (
                           <span className="unset">—</span>
                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Audit timeline"
+          hint="Append-only — every workflow transition across this campaign's strategies, newest first (CLAUDE.md 9.4)."
+        />
+        {"error" in auditResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load the audit timeline. {auditResult.error.message}</Alert>
+          </CardBody>
+        ) : auditResult.data.items.length === 0 ? (
+          <EmptyState title="No audit events yet">Events appear here once a strategy version transitions.</EmptyState>
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Strategy</th>
+                    <th>Transition</th>
+                    <th>Actor</th>
+                    <th>Reason</th>
+                    <th>When (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditResult.data.items.map((event) => (
+                    <tr key={event.id}>
+                      <td>
+                        <Link href={`/strategy-versions/${event.strategyVersionId}`}>{event.strategyName}</Link>
+                      </td>
+                      <td className="row" style={{ gap: "6px" }}>
+                        {event.priorStateSummary?.workflowState ? (
+                          <StateBadge state={event.priorStateSummary.workflowState} />
+                        ) : (
+                          <span className="unset">—</span>
+                        )}
+                        <span aria-hidden="true">→</span>
+                        {event.newStateSummary?.workflowState ? (
+                          <StateBadge state={event.newStateSummary.workflowState} />
+                        ) : (
+                          <span className="unset">—</span>
+                        )}
+                      </td>
+                      <td className="mono">{event.actor}</td>
+                      <td>{event.reason ?? <span className="unset">—</span>}</td>
+                      <td>
+                        <Timestamp value={event.createdAt} />
                       </td>
                     </tr>
                   ))}

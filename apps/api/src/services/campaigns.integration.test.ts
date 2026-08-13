@@ -7,13 +7,15 @@ import {
   createTestDatabase,
   isTestDatabaseAvailable,
   seedOrganisation,
+  seedStrategyVersion,
   strategies,
   strategyVersions,
   truncateAll,
   type Database,
   type SeededOrganisation,
 } from "@arf-os/db";
-import { createCampaign, getCampaignSummary, listCampaigns } from "./campaigns.js";
+import { recordCommitteeDecision } from "./decisions.js";
+import { createCampaign, getCampaignSummary, listCampaignAuditEvents, listCampaigns } from "./campaigns.js";
 
 const available = await isTestDatabaseAvailable();
 
@@ -226,5 +228,95 @@ describe.skipIf(!available)("getCampaignSummary (integration)", () => {
       pendingCommitteeDecisions: 0,
       lastActivityAt: null,
     });
+  });
+});
+
+describe.skipIf(!available)("listCampaignAuditEvents (integration)", () => {
+  let db: Database;
+
+  beforeAll(() => {
+    db = createTestDatabase();
+  });
+
+  afterAll(async () => {
+    await closeDatabase(db);
+  });
+
+  beforeEach(async () => {
+    await truncateAll(db);
+  });
+
+  it("returns undefined for a campaign that doesn't belong to this organisation", async () => {
+    const orgA = await seedOrganisation(db, { slug: "audit-org-a" });
+    const orgB = await seedOrganisation(db, { slug: "audit-org-b" });
+    expect(await listCampaignAuditEvents(db, orgA.organisationId, orgB.campaignId, 50)).toBeUndefined();
+  });
+
+  it("returns the real audit row a committee decision's own transition writes, not a synthetic one", async () => {
+    const org = await seedOrganisation(db, { slug: "audit-real" });
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVAL_REVIEW" });
+
+    const result = await recordCommitteeDecision(
+      db,
+      { id: org.userId, roles: ["COMMITTEE_MEMBER"] },
+      org.organisationId,
+      generateId<string>(),
+      {
+        strategyVersionId: strategy.strategyVersionId,
+        decision: "REJECT",
+        reasonCodes: ["WEAK_EDGE"],
+        rejectionCase: "Underperforms buy-and-hold out of sample.",
+        positiveCase: "n/a",
+        conditions: [],
+        requiredNextEvidence: [],
+        evidenceIds: [generateId<string>()],
+        humanOverride: false,
+      },
+    );
+    expect(result.ok).toBe(true);
+
+    const events = await listCampaignAuditEvents(db, org.organisationId, org.campaignId, 50);
+    expect(events).toHaveLength(1);
+    expect(events?.[0]).toMatchObject({
+      strategyVersionId: strategy.strategyVersionId,
+      strategyName: "Integration test strategy",
+      action: "workflow.transition.PAPER_APPROVAL_REVIEW_to_REJECTED",
+      actor: org.userId,
+      priorStateSummary: { workflowState: "PAPER_APPROVAL_REVIEW" },
+      newStateSummary: { workflowState: "REJECTED" },
+    });
+  });
+
+  async function seedDecision(org: SeededOrganisation): Promise<string> {
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVAL_REVIEW" });
+    const result = await recordCommitteeDecision(db, { id: org.userId, roles: ["COMMITTEE_MEMBER"] }, org.organisationId, generateId<string>(), {
+      strategyVersionId: strategy.strategyVersionId,
+      decision: "REJECT",
+      reasonCodes: ["WEAK_EDGE"],
+      rejectionCase: "r",
+      positiveCase: "n/a",
+      conditions: [],
+      requiredNextEvidence: [],
+      evidenceIds: [generateId<string>()],
+      humanOverride: false,
+    });
+    if (!result.ok) throw new Error("expected the decision to succeed");
+    return strategy.strategyVersionId;
+  }
+
+  it("never returns another organisation's audit events", async () => {
+    const orgA = await seedOrganisation(db, { slug: "audit-iso-a" });
+    const orgB = await seedOrganisation(db, { slug: "audit-iso-b" });
+    await seedDecision(orgB);
+
+    expect(await listCampaignAuditEvents(db, orgA.organisationId, orgA.campaignId, 50)).toEqual([]);
+  });
+
+  it("respects the limit", async () => {
+    const org = await seedOrganisation(db, { slug: "audit-limit" });
+    await seedDecision(org);
+    await seedDecision(org);
+
+    expect(await listCampaignAuditEvents(db, org.organisationId, org.campaignId, 1)).toHaveLength(1);
   });
 });

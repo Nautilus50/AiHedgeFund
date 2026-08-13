@@ -3,7 +3,14 @@ import type { Database } from "@arf-os/db";
 import { checkIdempotency, recordIdempotency } from "../lib/idempotency.js";
 import { sendProblem } from "../lib/problem-details.js";
 import { requireIdempotencyKey, requireRoleOr403 } from "../lib/request-helpers.js";
-import { CreateCampaignInput, createCampaign, getCampaign, getCampaignSummary, listCampaigns } from "../services/campaigns.js";
+import {
+  CreateCampaignInput,
+  createCampaign,
+  getCampaign,
+  getCampaignSummary,
+  listCampaignAuditEvents,
+  listCampaigns,
+} from "../services/campaigns.js";
 
 export interface CampaignRouteDeps {
   db: Database;
@@ -101,5 +108,20 @@ export function registerCampaignRoutes(app: FastifyInstance, deps: CampaignRoute
     }
 
     reply.send(summary);
+  });
+
+  app.get("/v1/campaigns/:id/audit-events", async (request, reply) => {
+    const auth = request.requireAuth();
+    const { id } = request.params as { id: string };
+    const query = request.query as { limit?: string };
+    const limit = query.limit ? Number(query.limit) : 50;
+
+    const items = await listCampaignAuditEvents(deps.db, auth.organisationId, id, limit);
+    if (!items) {
+      sendProblem(reply, { status: 404, title: "Not Found", detail: `No campaign ${id}.`, instance: request.url });
+      return;
+    }
+
+    reply.send({ items });
   });
 }
