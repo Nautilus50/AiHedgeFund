@@ -43,6 +43,13 @@
       "when": 1786413747668,
       "tag": "0005_needy_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786554419008,
+      "tag": "0006_handy_silver_fox",
+      "breakpoints": true
     }
   ]
 }

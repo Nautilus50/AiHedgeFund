@@ -24,7 +24,10 @@ export const strategies = pgTable("strategies", {
     .notNull()
     .references(() => campaigns.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 — this column is a pagination cursor sort key (listStrategies);
+  // see backtest.ts's backtestRuns.createdAt for why cursor sort keys need
+  // millisecond precision to match JS Date.
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });
 
 /**

@@ -38,7 +38,12 @@ export const backtestRuns = pgTable("backtest_runs", {
   errorCode: text("error_code"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 (milliseconds) matches JS Date's resolution. Without it,
+  // Postgres keeps microsecond precision, a cursor built from this column's
+  // (millisecond-truncated) JS Date value never equals the row's real stored
+  // value on re-query, so the `eq` branch of the cursor's OR always misses
+  // and the `gt` branch re-includes the boundary row on the next page.
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });
 
 export const tradeDirectionEnum = pgEnum("trade_direction", ["LONG", "SHORT"]);

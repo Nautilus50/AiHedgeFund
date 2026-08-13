@@ -21,7 +21,10 @@ export const campaigns = pgTable("campaigns", {
   createdByUserId: uuid("created_by_user_id")
     .notNull()
     .references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 — this column is a pagination cursor sort key (listCampaigns);
+  // see backtest.ts's backtestRuns.createdAt for why cursor sort keys need
+  // millisecond precision to match JS Date.
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

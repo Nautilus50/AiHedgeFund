@@ -217,6 +217,45 @@ describe.skipIf(!available)("backtest evidence reads (integration)", () => {
     expect(ids.has(page.page.items[0]?.id as string)).toBe(true);
   });
 
+  it("paginates with a cursor rather than returning everything at once", async () => {
+    // Runs are seeded back-to-back via defaultNow(), so their real
+    // `created_at` carries microsecond residue below the millisecond a JS
+    // Date (and thus the encoded cursor) can represent. Without
+    // `precision: 3` on backtest_runs.created_at, the cursor's `eq` branch
+    // never matches the row it was built from, the `gt` branch matches
+    // instead, and the boundary row is duplicated onto the next page.
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org);
+    const runIds = [
+      await seedRun(strategy.strategyVersionId),
+      await seedRun(strategy.strategyVersionId),
+      await seedRun(strategy.strategyVersionId),
+    ];
+
+    const firstPage = await listBacktestRuns(db, org.organisationId, {
+      strategyVersionId: strategy.strategyVersionId,
+      limit: 2,
+    });
+    expect(firstPage.ok).toBe(true);
+    if (!firstPage.ok) return;
+    expect(firstPage.page.items).toHaveLength(2);
+    expect(firstPage.page.nextCursor).toBeDefined();
+
+    const secondPage = await listBacktestRuns(db, org.organisationId, {
+      strategyVersionId: strategy.strategyVersionId,
+      limit: 2,
+      cursor: firstPage.page.nextCursor,
+    });
+    expect(secondPage.ok).toBe(true);
+    if (!secondPage.ok) return;
+    expect(secondPage.page.items).toHaveLength(1);
+    expect(secondPage.page.nextCursor).toBeUndefined();
+
+    const seenIds = [...firstPage.page.items, ...secondPage.page.items].map((row) => row.id);
+    expect(new Set(seenIds).size).toBe(seenIds.length);
+    expect(seenIds.sort()).toEqual([...runIds].sort());
+  });
+
   it("never lists another organisation's backtest runs", async () => {
     const alpha = await seedOrganisation(db, { slug: "alpha" });
     const beta = await seedOrganisation(db, { slug: "beta" });
