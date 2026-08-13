@@ -10,7 +10,8 @@
     "lint": "eslint src --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "reap-uploads": "tsx src/scripts/reap-abandoned-uploads.ts"
   },
   "dependencies": {
     "@arf-os/auth": "workspace:*",

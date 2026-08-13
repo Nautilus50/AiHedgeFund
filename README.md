@@ -527,6 +527,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Campaign command centre / Committee queue (spec 14.12) | Built as live grouped queries, not new materialised tables — `getCampaignSummary` mirrors `getDashboardKpis`'s pattern scoped to one campaign; `listCommitteeQueue` is a filtered read over the existing `strategy_read_models` table rather than a second projection needing its own refresh path. Wired into the Campaign Detail page. Agent operations and Practice leaderboard read models are not built — their source systems (the real multi-agent runtime, the practice arena) don't exist yet; Forward-test health deliberately stays live-on-read per ADR 0006, not a new table |
 | Command Centre operational widgets (CLAUDE.md 20) | Built — pending-verification count, recent committee decisions, report-upload parse failures (all organisation-scoped SQL), and live BullMQ queue depth (`getQueueDepths`, `packages/event-bus`) behind one `GET /v1/operations/summary` endpoint |
 | Database indexes (CLAUDE.md 9.2) | Built — 9 indexes for query patterns this codebase's own services actually exercise (cursor-paginated listings, the outbox relay's continuous claim query, the repeated "latest version per strategy" `LATERAL` join, per-strategy-version decision/audit lookups), not speculative ones. See [database docs](docs/database.md#indexes) |
+| Abandoned-upload reaping | Built — `findAbandonedUploads`/`reapAbandonedUploads` cross-reference every object under an organisation's R2 prefix against `artefacts.object_key`, flagging (or deleting) anything unreferenced past a 24-hour grace period. Run manually (`pnpm --filter @arf-os/api reap-uploads [organisationId] [--dry-run]`) or wired to the deployment platform's own scheduler — this repo still has no in-process cron mechanism, deliberately (see ADR 0006/0007's precedent) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | First vertical slice built — token-authenticated TradingView webhook ingestion, async signal processing into deterministic paper fills (one open position at a time, no pyramiding), real equity/drawdown/metrics reusing the existing `@arf-os/metrics` functions unchanged, a two-axis live health endpoint (infrastructure vs strategy performance, CLAUDE.md 16.3), and a minimal frontend (create form with a one-time token reveal, deployment detail page). See [ADR 0006](docs/adr/0006-forward-test-paper-engine.md) for scope and honest gaps — no drift reports, no stored health snapshots, no live price feed, SSE deliberately deferred |
@@ -540,7 +541,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 245 unit tests, 160 integration tests, 3 end-to-end tests
+- 245 unit tests, 165 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
@@ -575,8 +576,6 @@ Honest gaps in what is built, beyond the "not started" rows above:
   records the cost model, window, and capital the researcher states. Nothing
   verifies those match what TradingView was actually configured with; parity
   on the resulting figures is the only check.
-- **Abandoned uploads are not reaped.** A presigned URL used without calling
-  complete leaves an orphaned object.
 - **The frontend is functional, not designed.** Unstyled forms and tables.
   Equity/drawdown now render as linked charts (backtest-run page), but none
   of the other evidence-labelling rules in spec 15 (in-sample/validation/
