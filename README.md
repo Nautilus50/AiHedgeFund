@@ -525,6 +525,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Workers and transactional outbox | Built (relay, analytics, read-model refresh; research on a fixture provider) |
 | Strategy Library read model | Built. `strategy_read_models` is denormalised per strategy (spec 14.12), refreshed asynchronously off `strategy_version.transitioned` and `committee_decision.created` — always recomputed from the canonical tables from scratch rather than patched incrementally, so a replay or an out-of-order event still converges on the true current state. Not yet read from any API/UI (`listStrategies` still queries live) |
 | Campaign command centre / Committee queue (spec 14.12) | Built as live grouped queries, not new materialised tables — `getCampaignSummary` mirrors `getDashboardKpis`'s pattern scoped to one campaign; `listCommitteeQueue` is a filtered read over the existing `strategy_read_models` table rather than a second projection needing its own refresh path. Wired into the Campaign Detail page. Agent operations and Practice leaderboard read models are not built — their source systems (the real multi-agent runtime, the practice arena) don't exist yet; Forward-test health deliberately stays live-on-read per ADR 0006, not a new table |
+| Command Centre operational widgets (CLAUDE.md 20) | Built — pending-verification count, recent committee decisions, report-upload parse failures (all organisation-scoped SQL), and live BullMQ queue depth (`getQueueDepths`, `packages/event-bus`) behind one `GET /v1/operations/summary` endpoint |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | First vertical slice built — token-authenticated TradingView webhook ingestion, async signal processing into deterministic paper fills (one open position at a time, no pyramiding), real equity/drawdown/metrics reusing the existing `@arf-os/metrics` functions unchanged, a two-axis live health endpoint (infrastructure vs strategy performance, CLAUDE.md 16.3), and a minimal frontend (create form with a one-time token reveal, deployment detail page). See [ADR 0006](docs/adr/0006-forward-test-paper-engine.md) for scope and honest gaps — no drift reports, no stored health snapshots, no live price feed, SSE deliberately deferred |
@@ -538,7 +539,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 245 unit tests, 148 integration tests, 3 end-to-end tests
+- 245 unit tests, 156 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched

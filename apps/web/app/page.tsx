@@ -24,6 +24,37 @@ interface DashboardKpis {
   parity: { total: number; byStatus: Record<string, number> };
 }
 
+interface RecentDecision {
+  id: string;
+  decision: string;
+  strategyVersionId: string;
+  strategyName: string;
+  createdAt: string;
+}
+
+interface ParseFailure {
+  id: string;
+  verificationId: string;
+  strategyVersionId: string;
+  strategyName: string;
+  kind: string;
+}
+
+interface QueueDepth {
+  queue: string;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+}
+
+interface OperationsSummary {
+  pendingVerifications: number;
+  recentDecisions: RecentDecision[];
+  parseFailures: ParseFailure[];
+  queueDepths: QueueDepth[];
+}
+
 const WORKFLOW_STATES = [
   "CAMPAIGN_BACKLOG",
   "IDEA_RESEARCH",
@@ -66,9 +97,10 @@ function BreakdownList({
 }
 
 export default async function CommandCentrePage() {
-  const [result, kpisResult] = await Promise.all([
+  const [result, kpisResult, operationsResult] = await Promise.all([
     apiFetchSafe<CampaignPage>("/v1/campaigns"),
     apiFetchSafe<DashboardKpis>("/v1/dashboard/kpis"),
+    apiFetchSafe<OperationsSummary>("/v1/operations/summary"),
   ]);
 
   return (
@@ -126,6 +158,76 @@ export default async function CommandCentrePage() {
               <dt>Parity outcome</dt>
               <dd>
                 <BreakdownList counts={kpisResult.data.parity.byStatus} states={PARITY_STATUSES} kind="parity" />
+              </dd>
+            </dl>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Operations"
+          hint="What needs a human right now, and what the background jobs are doing (CLAUDE.md 20)."
+        />
+        {"error" in operationsResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load operations. {operationsResult.error.message}</Alert>
+          </CardBody>
+        ) : (
+          <CardBody>
+            <dl className="dl">
+              <dt>Pending verifications</dt>
+              <dd className="num">{operationsResult.data.pendingVerifications}</dd>
+
+              <dt>Queue depth</dt>
+              <dd>
+                {operationsResult.data.queueDepths.length === 0 ? (
+                  <span className="unset">not available</span>
+                ) : (
+                  <div className="row" style={{ flexWrap: "wrap", gap: "var(--sp-3)" }}>
+                    {operationsResult.data.queueDepths
+                      .filter((q) => q.waiting + q.active + q.delayed + q.failed > 0)
+                      .map((q) => (
+                        <span key={q.queue} className="mono" style={{ fontSize: "0.85em" }}>
+                          {q.queue}: {q.waiting}w / {q.active}a / {q.failed}f
+                        </span>
+                      ))}
+                    {operationsResult.data.queueDepths.every((q) => q.waiting + q.active + q.delayed + q.failed === 0) && (
+                      <span className="unset">all queues empty</span>
+                    )}
+                  </div>
+                )}
+              </dd>
+
+              <dt>Recent decisions</dt>
+              <dd>
+                {operationsResult.data.recentDecisions.length === 0 ? (
+                  <span className="unset">none yet</span>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: "1.1em" }}>
+                    {operationsResult.data.recentDecisions.map((d) => (
+                      <li key={d.id}>
+                        <Link href={`/strategy-versions/${d.strategyVersionId}`}>{d.strategyName}</Link>{" "}
+                        <StateBadge state={d.decision} kind="decision" /> <Timestamp value={d.createdAt} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </dd>
+
+              <dt>Parse failures</dt>
+              <dd>
+                {operationsResult.data.parseFailures.length === 0 ? (
+                  <span className="unset">none</span>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: "1.1em" }}>
+                    {operationsResult.data.parseFailures.map((f) => (
+                      <li key={f.id}>
+                        <Link href={`/strategy-versions/${f.strategyVersionId}`}>{f.strategyName}</Link> — {f.kind}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </dd>
             </dl>
           </CardBody>

@@ -101,6 +101,12 @@ const SIGNAL_PROCESSING_TONE: Record<string, BadgeTone> = {
   REJECTED: "danger",
 };
 
+const DECISION_TONE: Record<string, BadgeTone> = {
+  PAPER_APPROVED: "ok",
+  REWORK_WITH_NEW_VERSION: "warn",
+  REJECT: "danger",
+};
+
 export function humanise(state: string): string {
   return state.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
@@ -119,7 +125,8 @@ export function StateBadge({
     | "parity"
     | "forwardDeployment"
     | "health"
-    | "signalProcessing";
+    | "signalProcessing"
+    | "decision";
 }) {
   const map =
     kind === "campaign"
@@ -138,7 +145,9 @@ export function StateBadge({
                   ? HEALTH_TONE
                   : kind === "signalProcessing"
                     ? SIGNAL_PROCESSING_TONE
-                    : WORKFLOW_TONE;
+                    : kind === "decision"
+                      ? DECISION_TONE
+                      : WORKFLOW_TONE;
 
   return <Badge tone={map[state] ?? "neutral"}>{humanise(state)}</Badge>;
 }
