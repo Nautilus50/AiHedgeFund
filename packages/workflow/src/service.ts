@@ -76,6 +76,12 @@ export function createWorkflowService(repository: WorkflowRepository): WorkflowS
         };
       }
 
+      // Always fetched, not conditioned on the rule: the evaluator (not this
+      // service) owns which transitions actually require these facts, and
+      // fetching unconditionally keeps that ownership real rather than
+      // duplicated here (CLAUDE.md 10).
+      const evidenceStatus = await repository.getEvidenceStatus(input.strategyVersionId);
+
       const evaluation = evaluateTransition({
         from: version.workflowState,
         to: input.to,
@@ -83,6 +89,8 @@ export function createWorkflowService(repository: WorkflowRepository): WorkflowS
         actorRoles: input.actorRoles,
         strategyVersionCreatedByActorId: version.createdByActorId,
         evidenceIds: input.evidenceIds,
+        hasPassedVerification: evidenceStatus.hasPassedVerification,
+        hasFailedParity: evidenceStatus.hasFailedParity,
       });
 
       if (!evaluation.ok) {

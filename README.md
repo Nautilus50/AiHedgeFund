@@ -511,14 +511,14 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Application monorepo | Built — 6 apps, 11 packages |
 | Contracts, database, migrations | Built |
 | Auth and organisation boundary | Built (Clerk, organisation-scoped) |
-| Workflow engine and audit | Built |
+| Workflow engine and audit | Built. `PAPER_APPROVAL_REVIEW → PAPER_APPROVED` is hard-blocked (policy layer, not just UI) unless the strategy version has a PASSED TradingView verification and no FAIL parity report — a caller cannot approve around this by supplying arbitrary evidence IDs |
 | Strategy registry | Built (immutable versions, lineage, SDL, Pine revisions) |
 | Object storage and presigned uploads | Built (S3-compatible) |
 | TradingView CSV ingestion | Built (both export variants, versioned parsers) |
 | Independent metrics, equity, drawdown, parity | Built |
-| API endpoints | Built (campaigns, strategies, verifications, backtest runs, dataset versions, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
+| API endpoints | Built (campaigns, strategies, verifications, backtest runs, dataset versions, dashboard KPIs, decisions, audit, trades/equity/drawdown/metrics/parity reads) |
 | Ingestion chain | Built — upload → ledger → equity/drawdown → metrics → parity, driven by the outbox |
-| Frontend screens | Built — minimal, unstyled. Command Centre, Strategy Library, Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). Equity/drawdown charts on the backtest-run page (two linked single-axis charts, never one dual-axis chart — spec 15.18); raw evidence tables remain available underneath, collapsed. No Strategy Library filters yet (state/market/timeframe/parity) |
+| Frontend screens | Built — minimal, unstyled. Command Centre (with a KPI overview: campaign/strategy/backtest-run/dataset/parity counts and pipeline breakdowns, all real grouped SQL counts, org-scoped), Strategy Library (filterable by state/symbol/timeframe/parity, pushed down to real SQL), Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). Equity/drawdown charts on the backtest-run page (two linked single-axis charts, never one dual-axis chart — spec 15.18); raw evidence tables remain available underneath, collapsed |
 | Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |

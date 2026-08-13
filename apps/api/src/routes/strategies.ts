@@ -27,6 +27,35 @@ const CreateStrategyBody = z.object({
   name: z.string().min(1).max(255),
 });
 
+// Matches packages/db/src/schema/strategy.ts's `workflowStateEnum` — kept as
+// an explicit literal list here rather than imported, consistent with how
+// other routes declare their own enum literals (e.g. backtest-runs.ts's
+// runnerType) rather than reaching into the drizzle schema module.
+const WORKFLOW_STATES = [
+  "CAMPAIGN_BACKLOG",
+  "IDEA_RESEARCH",
+  "HYPOTHESIS_DRAFT",
+  "PINE_DEVELOPMENT",
+  "TRADINGVIEW_VERIFICATION",
+  "PAPER_APPROVAL_REVIEW",
+  "PAPER_APPROVED",
+  "REJECTED",
+  "BLOCKED",
+] as const;
+
+// Matches packages/db/src/schema/backtest.ts's `parityStatusEnum`.
+const PARITY_STATUSES = ["PASS", "WARN", "FAIL", "INSUFFICIENT_DATA"] as const;
+
+const ListStrategiesQuery = z.object({
+  campaignId: z.string().uuid().optional(),
+  workflowState: z.enum(WORKFLOW_STATES).optional(),
+  symbol: z.string().trim().min(1).max(64).optional(),
+  timeframe: z.string().trim().min(1).max(32).optional(),
+  parityStatus: z.enum(PARITY_STATUSES).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().optional(),
+});
+
 const CreateChildVersionBody = z.object({
   parentVersionId: z.string().uuid(),
   changeCategory: z.string().min(1),
@@ -88,13 +117,20 @@ export function registerStrategyRoutes(app: FastifyInstance, deps: StrategyRoute
 
   app.get("/v1/strategies", async (request, reply) => {
     const auth = request.requireAuth();
-    const query = request.query as { campaignId?: string; cursor?: string; limit?: string };
 
-    const result = await listStrategies(deps.db, auth.organisationId, {
-      campaignId: query.campaignId,
-      cursor: query.cursor,
-      limit: query.limit ? Number(query.limit) : undefined,
-    });
+    const parsedQuery = ListStrategiesQuery.safeParse(request.query);
+    if (!parsedQuery.success) {
+      sendProblem(reply, {
+        status: 422,
+        title: "Invalid filter",
+        detail: "One or more query parameters failed validation.",
+        instance: request.url,
+        validationErrors: parsedQuery.error.issues,
+      });
+      return;
+    }
+
+    const result = await listStrategies(deps.db, auth.organisationId, parsedQuery.data);
 
     if (!result.ok) {
       sendProblem(reply, {

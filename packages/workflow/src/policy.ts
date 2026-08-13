@@ -11,6 +11,14 @@ export interface TransitionRule {
   forbidCreatorAsActor: boolean;
   /** When true, at least one evidenceId must be supplied. */
   requiresEvidence: boolean;
+  /**
+   * When true, the strategy version must have a PASSED TradingView
+   * verification and no FAIL parity report (CLAUDE_CODE_BUILD_PROMPT.md:
+   * "Do not permit PAPER_APPROVED when required verification evidence is
+   * missing or parity is FAIL"). Only PAPER_APPROVAL_REVIEW -> PAPER_APPROVED
+   * sets this — it is the one transition the build spec names explicitly.
+   */
+  requiresPassedVerification: boolean;
 }
 
 /**
@@ -27,6 +35,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "IDEA_RESEARCH",
@@ -34,6 +43,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "IDEA_RESEARCH",
@@ -41,6 +51,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "HYPOTHESIS_DRAFT",
@@ -48,6 +59,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "DEVELOPER",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "HYPOTHESIS_DRAFT",
@@ -55,6 +67,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "PINE_DEVELOPMENT",
@@ -62,6 +75,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "DEVELOPER",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "PINE_DEVELOPMENT",
@@ -69,6 +83,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "VALIDATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "PINE_DEVELOPMENT",
@@ -76,6 +91,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "DEVELOPER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "TRADINGVIEW_VERIFICATION",
@@ -83,6 +99,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "OPERATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "TRADINGVIEW_VERIFICATION",
@@ -90,6 +107,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "VALIDATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "TRADINGVIEW_VERIFICATION",
@@ -97,6 +115,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "OPERATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     // Creator cannot approve their own version (CLAUDE.md 3.4 / spec 17.2).
@@ -105,6 +124,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "COMMITTEE_MEMBER",
     forbidCreatorAsActor: true,
     requiresEvidence: true,
+    requiresPassedVerification: true,
   },
   {
     from: "PAPER_APPROVAL_REVIEW",
@@ -112,6 +132,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "COMMITTEE_MEMBER",
     forbidCreatorAsActor: true,
     requiresEvidence: true,
+    requiresPassedVerification: false,
   },
   {
     from: "BLOCKED",
@@ -119,6 +140,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "BLOCKED",
@@ -126,6 +148,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "RESEARCHER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "BLOCKED",
@@ -133,6 +156,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "DEVELOPER",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "BLOCKED",
@@ -140,6 +164,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "OPERATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
   {
     from: "BLOCKED",
@@ -147,6 +172,7 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
     requiredRole: "OPERATOR",
     forbidCreatorAsActor: false,
     requiresEvidence: false,
+    requiresPassedVerification: false,
   },
 ];
 

@@ -78,7 +78,7 @@ const PARITY_TONE: Record<string, BadgeTone> = {
   INSUFFICIENT_DATA: "neutral",
 };
 
-function humanise(state: string): string {
+export function humanise(state: string): string {
   return state.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 

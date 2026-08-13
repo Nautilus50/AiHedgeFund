@@ -3,12 +3,16 @@ import { generateId } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import {
   auditEvents,
+  backtestRuns,
   idempotencyRecords,
   outboxEvents,
+  parityReports,
   strategies,
   strategyVersions,
+  tradingviewVerifications,
 } from "@arf-os/db";
 import type {
+  EvidenceStatus,
   StrategyVersionSnapshot,
   TransitionCommand,
   TransitionRecord,
@@ -63,6 +67,32 @@ export class DrizzleWorkflowRepository implements WorkflowRepository {
       // actor id directly (agent_runs lands in Milestone 12). Until that join
       // exists, forbidCreatorAsActor checks against the run id as a stand-in.
       createdByActorId: row.createdByActorId ?? "",
+    };
+  }
+
+  /**
+   * A PASSED verification and a FAIL parity report are independent facts —
+   * a version can have a passed verification for one run while a *different*
+   * run's parity fails, and both should still block approval (spec 17.2:
+   * do not approve on a partial picture).
+   */
+  async getEvidenceStatus(strategyVersionId: string): Promise<EvidenceStatus> {
+    const [passedVerification] = await this.db
+      .select({ id: tradingviewVerifications.id })
+      .from(tradingviewVerifications)
+      .where(and(eq(tradingviewVerifications.strategyVersionId, strategyVersionId), eq(tradingviewVerifications.status, "PASSED")))
+      .limit(1);
+
+    const [failedParity] = await this.db
+      .select({ id: parityReports.id })
+      .from(parityReports)
+      .innerJoin(backtestRuns, eq(backtestRuns.id, parityReports.backtestRunId))
+      .where(and(eq(backtestRuns.strategyVersionId, strategyVersionId), eq(parityReports.status, "FAIL")))
+      .limit(1);
+
+    return {
+      hasPassedVerification: passedVerification !== undefined,
+      hasFailedParity: failedParity !== undefined,
     };
   }
 

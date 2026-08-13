@@ -1,5 +1,6 @@
 import { generateId } from "@arf-os/contracts";
 import type {
+  EvidenceStatus,
   StrategyVersionSnapshot,
   TransitionCommand,
   TransitionRecord,
@@ -14,6 +15,7 @@ import type {
  */
 export class InMemoryWorkflowRepository implements WorkflowRepository {
   private readonly versions = new Map<string, StrategyVersionSnapshot>();
+  private readonly evidenceStatus = new Map<string, EvidenceStatus>();
   private readonly transitionsByIdempotencyKey = new Map<
     string,
     { record: TransitionRecord; requestFingerprint: string }
@@ -24,8 +26,17 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
     this.versions.set(version.id, version);
   }
 
+  /** Defaults to {false, false} (no verification, no failed parity) when never called for a version. */
+  seedEvidenceStatus(strategyVersionId: string, status: EvidenceStatus): void {
+    this.evidenceStatus.set(strategyVersionId, status);
+  }
+
   async getStrategyVersion(strategyVersionId: string): Promise<StrategyVersionSnapshot | undefined> {
     return this.versions.get(strategyVersionId);
+  }
+
+  async getEvidenceStatus(strategyVersionId: string): Promise<EvidenceStatus> {
+    return this.evidenceStatus.get(strategyVersionId) ?? { hasPassedVerification: false, hasFailedParity: false };
   }
 
   async findByIdempotencyKey(

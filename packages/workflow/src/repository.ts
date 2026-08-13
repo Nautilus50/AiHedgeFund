@@ -21,6 +21,20 @@ export interface TransitionCommand {
   overrideReason?: string | undefined;
 }
 
+/**
+ * Facts the policy needs to enforce CLAUDE_CODE_BUILD_PROMPT.md's decision
+ * rule ("Do not permit PAPER_APPROVED when required verification evidence
+ * is missing or parity is FAIL") and CLAUDE.md 18.3 ("Do not allow a
+ * one-click approval that hides the evidence"). Computed from real rows,
+ * never inferred from the evidenceIds a caller happens to supply.
+ */
+export interface EvidenceStatus {
+  /** True if this strategy version has at least one PASSED TradingView verification. */
+  hasPassedVerification: boolean;
+  /** True if any parity report for any backtest run of this strategy version is FAIL. */
+  hasFailedParity: boolean;
+}
+
 export interface TransitionRecord {
   id: string;
   strategyVersionId: string;
@@ -43,6 +57,8 @@ export interface TransitionRecord {
  */
 export interface WorkflowRepository {
   getStrategyVersion(strategyVersionId: string): Promise<StrategyVersionSnapshot | undefined>;
+
+  getEvidenceStatus(strategyVersionId: string): Promise<EvidenceStatus>;
 
   /**
    * Looks up a previously applied transition by idempotency key, alongside

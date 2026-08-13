@@ -2,18 +2,21 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   auditEvents,
+  backtestRuns,
   closeDatabase,
   createTestDatabase,
   idempotencyRecords,
   isTestDatabaseAvailable,
   outboxEvents,
+  parityReports,
   seedOrganisation,
   seedStrategyVersion,
   strategyVersions,
+  tradingviewVerifications,
   truncateAll,
   type Database,
 } from "@arf-os/db";
-import { fingerprint } from "@arf-os/contracts";
+import { fingerprint, generateId } from "@arf-os/contracts";
 import { createWorkflowService, type WorkflowService } from "../service.js";
 import { DrizzleWorkflowRepository } from "./drizzle-repository.js";
 
@@ -256,5 +259,137 @@ describe.skipIf(!available)("DrizzleWorkflowRepository (integration)", () => {
       .from(strategyVersions)
       .where(eq(strategyVersions.id, strategy.strategyVersionId));
     expect(version?.workflowState).toBe("PAPER_APPROVAL_REVIEW");
+  });
+
+  // CLAUDE_CODE_BUILD_PROMPT.md: "Do not permit PAPER_APPROVED when required
+  // verification evidence is missing or parity is FAIL." Proves the real
+  // DrizzleWorkflowRepository.getEvidenceStatus query — not just the pure
+  // evaluator — actually blocks this against Postgres.
+  describe("PAPER_APPROVED evidence gate (end to end)", () => {
+    async function seedApprovableVersion() {
+      const org = await seedOrganisation(db);
+      // A different creator than the acting committee member, so this test
+      // isolates the evidence gate from the separate creator-cannot-approve check.
+      const strategy = await seedStrategyVersion(db, org, {
+        workflowState: "PAPER_APPROVAL_REVIEW",
+        createdByAgentRunId: generateId<string>(),
+      });
+      return { org, strategy };
+    }
+
+    async function seedVerification(strategyVersionId: string, requestedByUserId: string, status: "PASSED" | "FAILED" | "PENDING") {
+      const verificationId = generateId<string>();
+      await db.insert(tradingviewVerifications).values({
+        id: verificationId, strategyVersionId, requiredSymbol: "BTCUSD", requiredTimeframe: "1h", requestedByUserId, status,
+      });
+      return verificationId;
+    }
+
+    async function seedBacktestRunWithParity(strategyVersionId: string, verificationId: string, parityStatus: "PASS" | "FAIL") {
+      const backtestRunId = generateId<string>();
+      await db.insert(backtestRuns).values({
+        id: backtestRunId, strategyVersionId, runnerType: "TRADINGVIEW", runnerVersion: "n/a", verificationId,
+        symbol: "BTCUSD", timeframe: "1h", segmentKind: "IN_SAMPLE",
+        fromTs: new Date("2024-01-01T00:00:00Z"), toTs: new Date("2024-01-02T00:00:00Z"),
+        costModel: { commissionType: "percent", commissionValue: 0.1, slippageTicks: 0 },
+        initialCapital: "10000", sourceHash: "hash", status: "SUCCEEDED",
+      });
+      await db.insert(parityReports).values({
+        id: generateId<string>(), backtestRunId, verificationId, status: parityStatus, comparison: {},
+      });
+    }
+
+    it("blocks approval when no PASSED verification exists for this strategy version", async () => {
+      const { org, strategy } = await seedApprovableVersion();
+
+      const outcome = await service.transition({
+        idempotencyKey: "key-no-verification",
+        strategyVersionId: strategy.strategyVersionId,
+        to: "PAPER_APPROVED",
+        actorId: org.userId,
+        actorRoles: ["COMMITTEE_MEMBER"],
+        evidenceIds: ["e1"],
+        reasonCodes: [],
+        freeTextSummary: "attempted approval with no verification",
+      });
+
+      expect(outcome).toMatchObject({ ok: false, reasonCode: "VERIFICATION_REQUIRED" });
+
+      const [version] = await db
+        .select({ workflowState: strategyVersions.workflowState })
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, strategy.strategyVersionId));
+      expect(version?.workflowState).toBe("PAPER_APPROVAL_REVIEW");
+      expect(await db.select().from(auditEvents)).toHaveLength(0);
+    });
+
+    it("blocks approval when a parity report is FAIL, even with a PASSED verification", async () => {
+      const { org, strategy } = await seedApprovableVersion();
+      const verificationId = await seedVerification(strategy.strategyVersionId, org.userId, "PASSED");
+      await seedBacktestRunWithParity(strategy.strategyVersionId, verificationId, "FAIL");
+
+      const outcome = await service.transition({
+        idempotencyKey: "key-parity-fail",
+        strategyVersionId: strategy.strategyVersionId,
+        to: "PAPER_APPROVED",
+        actorId: org.userId,
+        actorRoles: ["COMMITTEE_MEMBER"],
+        evidenceIds: ["e1"],
+        reasonCodes: [],
+        freeTextSummary: "attempted approval with failed parity",
+      });
+
+      expect(outcome).toMatchObject({ ok: false, reasonCode: "PARITY_FAILED" });
+
+      const [version] = await db
+        .select({ workflowState: strategyVersions.workflowState })
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, strategy.strategyVersionId));
+      expect(version?.workflowState).toBe("PAPER_APPROVAL_REVIEW");
+    });
+
+    it("allows approval when a verification passed and no parity report failed", async () => {
+      const { org, strategy } = await seedApprovableVersion();
+      const verificationId = await seedVerification(strategy.strategyVersionId, org.userId, "PASSED");
+      await seedBacktestRunWithParity(strategy.strategyVersionId, verificationId, "PASS");
+
+      const outcome = await service.transition({
+        idempotencyKey: "key-clean-approval",
+        strategyVersionId: strategy.strategyVersionId,
+        to: "PAPER_APPROVED",
+        actorId: org.userId,
+        actorRoles: ["COMMITTEE_MEMBER"],
+        evidenceIds: ["e1"],
+        reasonCodes: [],
+        freeTextSummary: "clean approval",
+      });
+
+      expect(outcome.ok).toBe(true);
+
+      const [version] = await db
+        .select({ workflowState: strategyVersions.workflowState })
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, strategy.strategyVersionId));
+      expect(version?.workflowState).toBe("PAPER_APPROVED");
+    });
+
+    it("blocks approval when the only PASSED verification belongs to a different strategy version", async () => {
+      const { org, strategy } = await seedApprovableVersion();
+      const otherVersion = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVAL_REVIEW" });
+      await seedVerification(otherVersion.strategyVersionId, org.userId, "PASSED");
+
+      const outcome = await service.transition({
+        idempotencyKey: "key-wrong-version",
+        strategyVersionId: strategy.strategyVersionId,
+        to: "PAPER_APPROVED",
+        actorId: org.userId,
+        actorRoles: ["COMMITTEE_MEMBER"],
+        evidenceIds: ["e1"],
+        reasonCodes: [],
+        freeTextSummary: "attempted approval using another version's verification",
+      });
+
+      expect(outcome).toMatchObject({ ok: false, reasonCode: "VERIFICATION_REQUIRED" });
+    });
   });
 });

@@ -13,6 +13,14 @@ describe("policy", () => {
     const rule = findRule("PAPER_APPROVAL_REVIEW", "PAPER_APPROVED");
     expect(rule?.requiredRole).toBe("COMMITTEE_MEMBER");
     expect(rule?.forbidCreatorAsActor).toBe(true);
+    expect(rule?.requiresPassedVerification).toBe(true);
+  });
+
+  it("requires a passed verification only for PAPER_APPROVAL_REVIEW -> PAPER_APPROVED, not any other transition", () => {
+    const others = TRANSITION_RULES.filter((rule) => !(rule.from === "PAPER_APPROVAL_REVIEW" && rule.to === "PAPER_APPROVED"));
+    for (const rule of others) {
+      expect(rule.requiresPassedVerification).toBe(false);
+    }
   });
 
   it("returns undefined for an unknown transition", () => {

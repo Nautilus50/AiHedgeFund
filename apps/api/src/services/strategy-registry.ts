@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, or } from "drizzle-orm";
+import { and, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
 import { canonicalHash, generateId, sha256Hex, StrategyDefinition } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import {
@@ -270,6 +270,14 @@ export interface StrategyListItem {
 
 export interface ListStrategiesInput {
   campaignId?: string | undefined;
+  /** The strategy's *latest* version's workflow state — not any historical version's. */
+  workflowState?: string | undefined;
+  /** Matched against the latest version's SDL `market.symbols` (containment, not equality — a strategy can declare several). */
+  symbol?: string | undefined;
+  /** Matched against the latest version's SDL `market.timeframe`. */
+  timeframe?: string | undefined;
+  /** True if *any* backtest run of *any* version of this strategy has a parity report with this status. */
+  parityStatus?: string | undefined;
   cursor?: string | undefined;
   limit?: number | undefined;
 }
@@ -279,10 +287,64 @@ export type ListStrategiesResult =
   | { ok: false; reasonCode: "INVALID_CURSOR" };
 
 /**
+ * Resolves which strategies match the state/symbol/timeframe/parity filters,
+ * as a plain id list consumed by `listStrategies` below via `inArray`.
+ *
+ * Raw SQL rather than the query builder: "latest version per strategy" is a
+ * `LATERAL` join (no window-function/self-join support needed), the SDL's
+ * `market.symbols`/`market.timeframe` live inside a JSONB column (Postgres's
+ * `@>` containment and `->>` extraction operators), and "any run of any
+ * version has this parity status" is a correlated `EXISTS`. All caller
+ * values are bound as query parameters via `sql` template interpolation —
+ * never string-concatenated — so this stays real, safe filtering rather
+ * than exposing arbitrary SQL (CLAUDE.md 17.3).
+ */
+async function resolveFilteredStrategyIds(
+  db: Database,
+  organisationId: string,
+  filters: Pick<ListStrategiesInput, "campaignId" | "workflowState" | "symbol" | "timeframe" | "parityStatus">,
+): Promise<string[]> {
+  const conditions: SQL[] = [sql`s.organisation_id = ${organisationId}`];
+  if (filters.campaignId) conditions.push(sql`s.campaign_id = ${filters.campaignId}`);
+  if (filters.workflowState) conditions.push(sql`latest.workflow_state = ${filters.workflowState}`);
+  if (filters.symbol) {
+    conditions.push(sql`sd.definition -> 'market' -> 'symbols' @> ${JSON.stringify([filters.symbol])}::jsonb`);
+  }
+  if (filters.timeframe) {
+    conditions.push(sql`sd.definition -> 'market' ->> 'timeframe' = ${filters.timeframe}`);
+  }
+  if (filters.parityStatus) {
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM backtest_runs br
+      INNER JOIN parity_reports pr ON pr.backtest_run_id = br.id
+      INNER JOIN strategy_versions sv2 ON sv2.id = br.strategy_version_id
+      WHERE sv2.strategy_id = s.id AND pr.status = ${filters.parityStatus}
+    )`);
+  }
+
+  const rows = await db.execute<{ id: string }>(sql`
+    SELECT s.id
+    FROM strategies s
+    INNER JOIN LATERAL (
+      SELECT sv.id, sv.workflow_state
+      FROM strategy_versions sv
+      WHERE sv.strategy_id = s.id
+      ORDER BY sv.version_number DESC
+      LIMIT 1
+    ) latest ON true
+    LEFT JOIN strategy_definitions sd ON sd.strategy_version_id = latest.id
+    WHERE ${sql.join(conditions, sql` AND `)}
+  `);
+
+  return rows.map((row) => row.id);
+}
+
+/**
  * Organisation-scoped, cursor-paginated strategy list, each row annotated
- * with its highest-versionNumber StrategyVersion. Two queries total
- * regardless of page size: one for the page of strategies, one batched
- * `IN (...)` lookup for their versions — no N+1.
+ * with its highest-versionNumber StrategyVersion. Two queries total in the
+ * unfiltered case (one for the page of strategies, one batched `IN (...)`
+ * lookup for their versions — no N+1); one more when any filter is set, to
+ * resolve the matching id set before pagination runs.
  */
 export async function listStrategies(
   db: Database,
@@ -305,9 +367,25 @@ export async function listStrategies(
     );
   }
 
-  const baseClause = input.campaignId
-    ? and(eq(strategies.organisationId, organisationId), eq(strategies.campaignId, input.campaignId))
-    : eq(strategies.organisationId, organisationId);
+  const hasFilter =
+    input.workflowState !== undefined ||
+    input.symbol !== undefined ||
+    input.timeframe !== undefined ||
+    input.parityStatus !== undefined;
+
+  let filteredIds: string[] | undefined;
+  if (hasFilter) {
+    filteredIds = await resolveFilteredStrategyIds(db, organisationId, input);
+    if (filteredIds.length === 0) {
+      return { ok: true, page: { items: [], nextCursor: undefined } };
+    }
+  }
+
+  const baseClause = and(
+    eq(strategies.organisationId, organisationId),
+    input.campaignId ? eq(strategies.campaignId, input.campaignId) : undefined,
+    filteredIds ? inArray(strategies.id, filteredIds) : undefined,
+  );
 
   const strategyRows = await db
     .select()
