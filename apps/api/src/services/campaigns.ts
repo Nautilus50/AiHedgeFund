@@ -1,8 +1,8 @@
-import { and, eq, gt, or } from "drizzle-orm";
+import { and, eq, gt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { generateId } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { campaigns } from "@arf-os/db";
+import { backtestRuns, campaigns, committeeDecisions, strategies, strategyVersions } from "@arf-os/db";
 import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
 
 export const CreateCampaignInput = z.object({
@@ -60,6 +60,100 @@ export async function getCampaign(
     .where(and(eq(campaigns.id, campaignId), eq(campaigns.organisationId, organisationId)))
     .limit(1);
   return row;
+}
+
+export interface CampaignSummaryStats {
+  strategies: { total: number; byWorkflowState: Record<string, number> };
+  backtestRuns: { total: number; byStatus: Record<string, number> };
+  pendingCommitteeDecisions: number;
+  lastActivityAt: Date | null;
+}
+
+/**
+ * Campaign-scoped counterpart to `getDashboardKpis` (spec 14.12's "Campaign
+ * command centre"). Every number is a real grouped `COUNT(*)` scoped to one
+ * campaign, mirroring that function's pattern exactly rather than a
+ * separate materialised table — at this scale a per-campaign grouped query
+ * is exactly as fast as reading a denormalised row would be, and doesn't
+ * add a second thing that needs to stay in sync with `strategies`/
+ * `backtest_runs`. Returns `undefined` if the campaign isn't owned by this
+ * organisation, mirroring `getCampaign`'s own check.
+ */
+export async function getCampaignSummary(
+  db: Database,
+  organisationId: string,
+  campaignId: string,
+): Promise<CampaignSummaryStats | undefined> {
+  const campaign = await getCampaign(db, organisationId, campaignId);
+  if (!campaign) return undefined;
+
+  // Strategies grouped by their *latest* version's workflow state — same
+  // LATERAL join `getDashboardKpis` uses, scoped to this campaign.
+  const strategyStateRows = await db.execute<{ workflow_state: string; total: number }>(sql`
+    SELECT latest.workflow_state, COUNT(*)::int as total
+    FROM strategies s
+    INNER JOIN LATERAL (
+      SELECT sv.workflow_state
+      FROM strategy_versions sv
+      WHERE sv.strategy_id = s.id
+      ORDER BY sv.version_number DESC
+      LIMIT 1
+    ) latest ON true
+    WHERE s.campaign_id = ${campaignId}
+    GROUP BY latest.workflow_state
+  `);
+
+  const byWorkflowState: Record<string, number> = {};
+  let strategyTotal = 0;
+  for (const row of strategyStateRows) {
+    byWorkflowState[row.workflow_state] = row.total;
+    strategyTotal += row.total;
+  }
+
+  const backtestStatusRows = await db
+    .select({ status: backtestRuns.status, total: sql<number>`count(*)::int` })
+    .from(backtestRuns)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(strategies.campaignId, campaignId))
+    .groupBy(backtestRuns.status);
+
+  const byStatus: Record<string, number> = {};
+  let backtestTotal = 0;
+  for (const row of backtestStatusRows) {
+    byStatus[row.status] = row.total;
+    backtestTotal += row.total;
+  }
+
+  // A raw `max(...)` aggregate isn't a typed column, so postgres-js returns
+  // it as a string rather than applying its usual timestamptz -> Date
+  // parsing — the `sql<Date | null>` annotation only affects TypeScript,
+  // not the runtime value, so it's parsed explicitly here instead of
+  // trusting the type.
+  const [latestVersionActivity] = await db
+    .select({ max: sql<string | null>`max(${strategyVersions.createdAt})` })
+    .from(strategyVersions)
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(strategies.campaignId, campaignId));
+
+  const [latestDecisionActivity] = await db
+    .select({ max: sql<string | null>`max(${committeeDecisions.createdAt})` })
+    .from(committeeDecisions)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, committeeDecisions.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(strategies.campaignId, campaignId));
+
+  const activityDates = [latestVersionActivity?.max, latestDecisionActivity?.max]
+    .filter((d): d is string => d !== null && d !== undefined)
+    .map((d) => new Date(d));
+  const lastActivityAt = activityDates.length > 0 ? new Date(Math.max(...activityDates.map((d) => d.getTime()))) : null;
+
+  return {
+    strategies: { total: strategyTotal, byWorkflowState },
+    backtestRuns: { total: backtestTotal, byStatus },
+    pendingCommitteeDecisions: byWorkflowState["PAPER_APPROVAL_REVIEW"] ?? 0,
+    lastActivityAt,
+  };
 }
 
 export interface ListCampaignsInput {

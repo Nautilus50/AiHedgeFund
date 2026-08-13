@@ -186,7 +186,11 @@ forward-deployment health are not yet migrated to this.
   why each is deferred rather than half-built
 - Agent orchestration beyond the single IDEA_SCOUT fixture path
 - SSE beyond the one page above; practice arena; portfolio research
-- Most of spec 14.12's read models (Campaign command centre, Agent
-  operations, Committee queue, Forward-test health, Practice leaderboard) —
-  only the Strategy Library one (`strategy_read_models`) is built, and
-  nothing reads it yet; `listStrategies` still queries live
+- Two of spec 14.12's five read models: Agent operations and Practice
+  leaderboard — their source systems (the real multi-agent runtime beyond
+  one fixture path, the practice arena) don't exist yet, so there is
+  nothing to build a read model over. Campaign command centre and
+  Committee queue are built (as live grouped queries and a filtered read
+  over `strategy_read_models`, not new tables — see README); Forward-test
+  health deliberately stays live-on-read per ADR 0006. `strategy_read_models`
+  itself still isn't read by `listStrategies`, which queries live

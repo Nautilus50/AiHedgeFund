@@ -13,6 +13,22 @@ interface CampaignDetail {
   createdAt: string;
 }
 
+interface CampaignSummary {
+  strategies: { total: number; byWorkflowState: Record<string, number> };
+  backtestRuns: { total: number; byStatus: Record<string, number> };
+  pendingCommitteeDecisions: number;
+  lastActivityAt: string | null;
+}
+
+interface CommitteeQueueItem {
+  strategyId: string;
+  campaignId: string;
+  name: string;
+  latestVersionId: string;
+  latestVersionNumber: number;
+  refreshedAt: string;
+}
+
 interface StrategyListItem {
   id: string;
   name: string;
@@ -28,9 +44,11 @@ interface StrategyPage {
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaignResult, strategiesResult] = await Promise.all([
+  const [campaignResult, strategiesResult, summaryResult, queueResult] = await Promise.all([
     apiFetchSafe<CampaignDetail>(`/v1/campaigns/${id}`),
     apiFetchSafe<StrategyPage>(`/v1/strategies?campaignId=${id}`),
+    apiFetchSafe<CampaignSummary>(`/v1/campaigns/${id}/summary`),
+    apiFetchSafe<{ items: CommitteeQueueItem[] }>(`/v1/committee-queue?campaignId=${id}`),
   ]);
 
   if ("error" in campaignResult) {
@@ -75,6 +93,78 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </dd>
           </dl>
         </CardBody>
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Campaign summary"
+          hint="Real grouped counts scoped to this campaign — the same query shape as the Command Centre KPIs, just narrower."
+        />
+        {"error" in summaryResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load campaign summary. {summaryResult.error.message}</Alert>
+          </CardBody>
+        ) : (
+          <CardBody>
+            <dl className="dl">
+              <dt>Strategies</dt>
+              <dd className="num">{summaryResult.data.strategies.total}</dd>
+              <dt>Backtest runs</dt>
+              <dd className="num">{summaryResult.data.backtestRuns.total}</dd>
+              <dt>Pending committee decisions</dt>
+              <dd className="num">{summaryResult.data.pendingCommitteeDecisions}</dd>
+              <dt>Last activity</dt>
+              <dd>
+                {summaryResult.data.lastActivityAt ? (
+                  <Timestamp value={summaryResult.data.lastActivityAt} />
+                ) : (
+                  <span className="unset">no activity yet</span>
+                )}
+              </dd>
+            </dl>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Committee queue"
+          hint="Strategy versions currently in PAPER_APPROVAL_REVIEW, waiting on a decision — oldest first."
+        />
+        {"error" in queueResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load the committee queue. {queueResult.error.message}</Alert>
+          </CardBody>
+        ) : queueResult.data.items.length === 0 ? (
+          <EmptyState title="Nothing awaiting a decision" />
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Strategy</th>
+                    <th>Version</th>
+                    <th>Waiting since</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {queueResult.data.items.map((item) => (
+                    <tr key={item.strategyId}>
+                      <td>
+                        <Link href={`/strategy-versions/${item.latestVersionId}`}>{item.name}</Link>
+                      </td>
+                      <td className="num">v{item.latestVersionNumber}</td>
+                      <td>
+                        <Timestamp value={item.refreshedAt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
       </Card>
 
       <Card>
