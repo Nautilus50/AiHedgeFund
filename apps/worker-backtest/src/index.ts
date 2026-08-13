@@ -5,12 +5,13 @@ import {
   DrizzleOutboxStore,
   LocalRunnerExecutionJob,
   QUEUE_NAMES,
+  ReportParseJob,
   TradeNormalisationJob,
   parseRedisUrl,
   relayOutboxBatch,
 } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
-import { handleLocalRunnerExecution, handleTradeNormalisation } from "./handlers.js";
+import { handleLocalRunnerExecution, handleReportParse, handleTradeNormalisation } from "./handlers.js";
 import { createObjectStoreClient } from "./object-store.js";
 
 try {
@@ -56,6 +57,21 @@ async function main() {
     region: process.env.OBJECT_STORE_REGION,
   });
 
+  const reportParseWorker = new Worker(
+    QUEUE_NAMES.reportParse,
+    async (job) => {
+      const input = ReportParseJob.parse(job.data);
+      const result = await handleReportParse(db, s3, bucket, input);
+      logger.info({ jobId: job.id, ...input, ...result }, "report upload parsed");
+      return result;
+    },
+    { connection },
+  );
+
+  reportParseWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, queue: QUEUE_NAMES.reportParse, err: error }, "job failed");
+  });
+
   const normalisationWorker = new Worker(
     QUEUE_NAMES.tradeNormalisation,
     async (job) => {
@@ -91,6 +107,7 @@ async function main() {
   const shutdown = async () => {
     logger.info("shutting down");
     running = false;
+    await reportParseWorker.close();
     await normalisationWorker.close();
     await localRunnerWorker.close();
     await publisher.close();
@@ -116,7 +133,7 @@ async function main() {
     {
       pollIntervalMs: POLL_INTERVAL_MS,
       batchSize: BATCH_SIZE,
-      queues: [QUEUE_NAMES.tradeNormalisation, QUEUE_NAMES.localRunnerExecution],
+      queues: [QUEUE_NAMES.reportParse, QUEUE_NAMES.tradeNormalisation, QUEUE_NAMES.localRunnerExecution],
     },
     "outbox relay started",
   );

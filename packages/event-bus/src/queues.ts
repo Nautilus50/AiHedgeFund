@@ -20,6 +20,8 @@ export const ReportParseJob = z.object({
   organisationId: z.string().uuid(),
   objectKey: z.string().min(1),
   kind: z.enum(["PERFORMANCE_SUMMARY", "LIST_OF_TRADES"]),
+  /** The run this ledger belongs to, carried through from upload completion — see completeReportUpload's CompleteUploadInput. Only meaningful for a List of Trades. */
+  backtestRunId: z.string().uuid().optional(),
 });
 export type ReportParseJob = z.infer<typeof ReportParseJob>;
 

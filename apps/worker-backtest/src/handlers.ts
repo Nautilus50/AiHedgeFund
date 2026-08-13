@@ -5,8 +5,84 @@ import { BacktestSegmentKind, CostModel, StrategyDefinition, generateId } from "
 import type { Database } from "@arf-os/db";
 import { artefacts, backtestRuns, datasetVersions, outboxEvents, reportUploads, strategyDefinitions, trades } from "@arf-os/db";
 import { createLocalPineRunner, type BacktestTrade } from "@arf-os/backtest-sdk";
-import { parseOhlcvCsv, type ParsedTrade } from "@arf-os/pine";
+import type { ReportParseJob } from "@arf-os/event-bus";
+import { parseListOfTrades, parseOhlcvCsv, parsePerformanceSummary, type ParsedTrade } from "@arf-os/pine";
 import { fetchObjectText } from "./object-store.js";
+
+export interface ReportParseResult {
+  parseStatus: "PARSED" | "FAILED";
+  /** True when a report_upload.parsed event was emitted, i.e. normalisation will run. */
+  normalisationQueued: boolean;
+}
+
+/**
+ * Parses a raw report upload — the job the outbox routes from
+ * `report_upload.uploaded`. Re-fetches the object by key rather than trusting
+ * anything cached in the job payload, so the parse is always against the
+ * exact bytes that were durably stored (CLAUDE.md 15.1).
+ *
+ * The raw artefact is already persisted by the API before this job ever
+ * runs, so a parse failure here only ever downgrades `report_uploads` to
+ * FAILED with warnings — it never loses the raw upload.
+ */
+export async function handleReportParse(db: Database, s3: S3Client, bucket: string, input: ReportParseJob): Promise<ReportParseResult> {
+  const text = await fetchObjectText(s3, bucket, input.objectKey);
+
+  const outcome =
+    input.kind === "LIST_OF_TRADES"
+      ? { kind: "LIST_OF_TRADES" as const, result: parseListOfTrades(text) }
+      : { kind: "PERFORMANCE_SUMMARY" as const, result: parsePerformanceSummary(text) };
+
+  const parseStatus = outcome.result.ok ? "PARSED" : "FAILED";
+  const parserVersion = outcome.result.ok ? outcome.result.parserVersion : undefined;
+  const parseWarnings = outcome.result.ok
+    ? outcome.result.warnings.map((w) => `${w.code}: ${w.message}`)
+    : [outcome.result.message];
+
+  // A Performance Summary's reported metrics are the only TradingView side
+  // parity has to compare against, so they are persisted here rather than
+  // returned and discarded. Stored verbatim — titles and source column
+  // headers as the parser produced them, no reinterpretation (CLAUDE.md 15.2).
+  const parsedMetrics = outcome.kind === "PERFORMANCE_SUMMARY" && outcome.result.ok ? outcome.result.metrics : null;
+
+  // Likewise for a trade ledger: normalisation reads this rather than
+  // re-fetching and re-parsing the raw CSV, so the ledger it writes is
+  // traceable to one stored parse result and one parser version.
+  const parsedTrades = outcome.kind === "LIST_OF_TRADES" && outcome.result.ok ? outcome.result.trades : null;
+
+  // Only a successfully parsed ledger attached to a known run can be
+  // normalised. Without both, the upload is still stored — it is evidence
+  // either way — but no event is emitted, because there is nothing a
+  // consumer could do with it.
+  const normalisationQueued = parsedTrades !== null && input.backtestRunId !== undefined;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(reportUploads)
+      .set({ parseStatus, parserVersion, parseWarnings, parsedMetrics, parsedTrades })
+      .where(eq(reportUploads.id, input.reportUploadId));
+
+    // Same transaction as the parse result (CLAUDE.md 9.3). The relay routes
+    // this to trade normalisation.
+    if (normalisationQueued) {
+      const now = new Date();
+      await tx.insert(outboxEvents).values({
+        id: generateId<string>(),
+        eventType: "report_upload.parsed",
+        eventVersion: "1.0.0",
+        aggregateId: input.reportUploadId,
+        aggregateVersion: now.getTime().toString(),
+        correlationId: generateId<string>(),
+        actor: "worker-backtest",
+        // TradeNormalisationJob's exact shape.
+        payload: { backtestRunId: input.backtestRunId, reportUploadId: input.reportUploadId },
+        createdAt: now,
+      });
+    }
+  });
+
+  return { parseStatus, normalisationQueued };
+}
 
 export interface TradeNormalisationResult {
   tradeCount: number;

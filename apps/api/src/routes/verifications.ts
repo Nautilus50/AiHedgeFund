@@ -136,83 +136,90 @@ export function registerVerificationRoutes(app: FastifyInstance, deps: Verificat
     reply.code(201).send(presigned);
   });
 
-  app.post("/v1/verifications/:id/uploads/complete", async (request, reply) => {
-    const auth = request.requireAuth();
-    if (!requireRoleOr403(request, reply, auth.role, ["OPERATOR", "DEVELOPER", "ADMIN"])) return;
-    const { id } = request.params as { id: string };
+  app.post(
+    "/v1/verifications/:id/uploads/complete",
+    // Stricter than the global default: each call fetches an object back
+    // from R2 and writes durable rows, so it's costlier per request than a
+    // typical read (CLAUDE.md 19).
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const auth = request.requireAuth();
+      if (!requireRoleOr403(request, reply, auth.role, ["OPERATOR", "DEVELOPER", "ADMIN"])) return;
+      const { id } = request.params as { id: string };
 
-    const parsed = CompleteUploadBody.safeParse(request.body);
-    if (!parsed.success) {
-      sendProblem(reply, {
-        status: 422,
-        title: "Invalid upload completion request",
-        detail: "Request body failed validation.",
-        instance: request.url,
-        validationErrors: parsed.error.issues,
-      });
-      return;
-    }
-
-    const idempotencyKey = requireIdempotencyKey(request, reply);
-    if (!idempotencyKey) return;
-
-    const verification = await getVerification(deps.db, auth.organisationId, id);
-    if (!verification) {
-      sendProblem(reply, { status: 404, title: "Not Found", detail: `No verification ${id}.`, instance: request.url });
-      return;
-    }
-
-    // Resolved against the caller's organisation before it can reach the
-    // outbox payload — a run id from a request body is untrusted input
-    // (CLAUDE.md 19.1, 19.5).
-    if (parsed.data.backtestRunId) {
-      const run = await getBacktestRun(deps.db, auth.organisationId, parsed.data.backtestRunId);
-      if (!run) {
-        sendProblem(reply, {
-          status: 404,
-          title: "Not Found",
-          detail: `No backtest run ${parsed.data.backtestRunId}.`,
-          instance: request.url,
-        });
-        return;
-      }
-      if (run.strategyVersionId !== verification.strategyVersionId) {
+      const parsed = CompleteUploadBody.safeParse(request.body);
+      if (!parsed.success) {
         sendProblem(reply, {
           status: 422,
-          title: "Run does not match verification",
-          detail: "The backtest run and the verification must belong to the same strategy version.",
+          title: "Invalid upload completion request",
+          detail: "Request body failed validation.",
           instance: request.url,
+          validationErrors: parsed.error.issues,
         });
         return;
       }
-    }
 
-    const idem = await checkIdempotency(deps.db, idempotencyKey, parsed.data);
-    if (idem.status === "CONFLICT") {
-      sendProblem(reply, { status: 409, title: "Idempotency-Key conflict", detail: "Key reused with a different body.", instance: request.url });
-      return;
-    }
-    if (idem.status === "REPLAY") {
-      reply.code(200).send(idem.storedResponse);
-      return;
-    }
+      const idempotencyKey = requireIdempotencyKey(request, reply);
+      if (!idempotencyKey) return;
 
-    const result = await completeReportUpload(deps.db, deps.s3, deps.bucket, {
-      organisationId: verification.organisationId,
-      verificationId: verification.id,
-      kind: parsed.data.kind,
-      objectKey: parsed.data.objectKey,
-      uploadedByUserId: auth.userId,
-      backtestRunId: parsed.data.backtestRunId,
-    });
+      const verification = await getVerification(deps.db, auth.organisationId, id);
+      if (!verification) {
+        sendProblem(reply, { status: 404, title: "Not Found", detail: `No verification ${id}.`, instance: request.url });
+        return;
+      }
 
-    await recordIdempotency(deps.db, {
-      idempotencyKey,
-      organisationId: auth.organisationId,
-      requestBody: parsed.data,
-      responseBody: result,
-    });
+      // Resolved against the caller's organisation before it can reach the
+      // outbox payload — a run id from a request body is untrusted input
+      // (CLAUDE.md 19.1, 19.5).
+      if (parsed.data.backtestRunId) {
+        const run = await getBacktestRun(deps.db, auth.organisationId, parsed.data.backtestRunId);
+        if (!run) {
+          sendProblem(reply, {
+            status: 404,
+            title: "Not Found",
+            detail: `No backtest run ${parsed.data.backtestRunId}.`,
+            instance: request.url,
+          });
+          return;
+        }
+        if (run.strategyVersionId !== verification.strategyVersionId) {
+          sendProblem(reply, {
+            status: 422,
+            title: "Run does not match verification",
+            detail: "The backtest run and the verification must belong to the same strategy version.",
+            instance: request.url,
+          });
+          return;
+        }
+      }
 
-    reply.code(201).send(result);
-  });
+      const idem = await checkIdempotency(deps.db, idempotencyKey, parsed.data);
+      if (idem.status === "CONFLICT") {
+        sendProblem(reply, { status: 409, title: "Idempotency-Key conflict", detail: "Key reused with a different body.", instance: request.url });
+        return;
+      }
+      if (idem.status === "REPLAY") {
+        reply.code(200).send(idem.storedResponse);
+        return;
+      }
+
+      const result = await completeReportUpload(deps.db, deps.s3, deps.bucket, {
+        organisationId: verification.organisationId,
+        verificationId: verification.id,
+        kind: parsed.data.kind,
+        objectKey: parsed.data.objectKey,
+        uploadedByUserId: auth.userId,
+        backtestRunId: parsed.data.backtestRunId,
+      });
+
+      await recordIdempotency(deps.db, {
+        idempotencyKey,
+        organisationId: auth.organisationId,
+        requestBody: parsed.data,
+        responseBody: result,
+      });
+
+      reply.code(201).send(result);
+    },
+  );
 }

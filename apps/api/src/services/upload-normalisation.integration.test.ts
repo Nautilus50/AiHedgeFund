@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { S3Client } from "@aws-sdk/client-s3";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -18,11 +15,10 @@ import {
   truncateAll,
   type Database,
 } from "@arf-os/db";
-import { TradeNormalisationJob, routeOutboxEvent, QUEUE_NAMES } from "@arf-os/event-bus";
+import { QUEUE_NAMES, ReportParseJob, routeOutboxEvent } from "@arf-os/event-bus";
 import { completeReportUpload } from "./verification.js";
 
 const available = await isTestDatabaseAvailable();
-const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "../../../../pine/fixtures/tradingview");
 
 /**
  * A stub standing in for object storage. The R2-backed suite in
@@ -30,19 +26,24 @@ const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "../../../../p
  * is about what gets persisted and emitted afterwards, so stubbing keeps it
  * runnable without storage credentials.
  */
-function stubS3(body: string): S3Client {
+function stubS3(): S3Client {
   return {
     send: async () => ({
       ContentType: "text/csv",
-      Body: { transformToByteArray: async () => new TextEncoder().encode(body) },
+      Body: { transformToByteArray: async () => new TextEncoder().encode("irrelevant,for,this,suite") },
     }),
   } as unknown as S3Client;
 }
 
-describe.skipIf(!available)("upload completion → normalisation handoff", () => {
+/**
+ * `completeReportUpload` no longer parses (that moved to the async
+ * `handleReportParse` worker job — see
+ * apps/worker-backtest/src/report-parse.integration.test.ts). This suite
+ * covers what's left of its contract: the upload is durably stored PENDING,
+ * and the handoff to the report-parse job is correctly shaped and routed.
+ */
+describe.skipIf(!available)("upload completion → report-parse handoff", () => {
   let db: Database;
-  const ledgerCsv = readFileSync(join(fixturesDir, "list-of-trades-comma-iso.csv"), "utf8");
-  const summaryCsv = readFileSync(join(fixturesDir, "performance-summary-comma.csv"), "utf8");
 
   beforeAll(() => {
     db = createTestDatabase();
@@ -91,13 +92,13 @@ describe.skipIf(!available)("upload completion → normalisation handoff", () =>
   }
 
   async function readEmitted() {
-    return db.select().from(outboxEvents).where(eq(outboxEvents.eventType, "report_upload.parsed"));
+    return db.select().from(outboxEvents).where(eq(outboxEvents.eventType, "report_upload.uploaded"));
   }
 
-  it("persists the parsed ledger and emits an event normalisation can consume", async () => {
+  it("stores the upload PENDING and emits a report-parse job the worker can consume", async () => {
     const seeded = await seed();
 
-    const result = await completeReportUpload(db, stubS3(ledgerCsv), "bucket", {
+    const result = await completeReportUpload(db, stubS3(), "bucket", {
       organisationId: seeded.organisationId,
       verificationId: seeded.verificationId,
       kind: "LIST_OF_TRADES",
@@ -106,15 +107,9 @@ describe.skipIf(!available)("upload completion → normalisation handoff", () =>
       backtestRunId: seeded.backtestRunId,
     });
 
-    expect(result.normalisationQueued).toBe(true);
-
-    const [upload] = await db
-      .select()
-      .from(reportUploads)
-      .where(eq(reportUploads.id, result.reportUploadId));
-    // The fixture pairs entry/exit rows into 3 trades, one still open.
-    expect(upload?.parsedTrades).toHaveLength(3);
-    expect(upload?.parsedMetrics).toBeNull();
+    const [upload] = await db.select().from(reportUploads).where(eq(reportUploads.id, result.reportUploadId));
+    expect(upload?.parseStatus).toBe("PENDING");
+    expect(upload?.parsedTrades).toBeNull();
 
     const [event] = await readEmitted();
     expect(event).toBeDefined();
@@ -122,21 +117,25 @@ describe.skipIf(!available)("upload completion → normalisation handoff", () =>
 
     expect(event.aggregateId).toBe(result.reportUploadId);
     expect(event.payload).toEqual({
-      backtestRunId: seeded.backtestRunId,
       reportUploadId: result.reportUploadId,
+      verificationId: seeded.verificationId,
+      organisationId: seeded.organisationId,
+      objectKey: "key.csv",
+      kind: "LIST_OF_TRADES",
+      backtestRunId: seeded.backtestRunId,
     });
     // The consuming worker parses with this schema, and the relay must route
-    // it to the normalisation queue — assert both contracts here.
-    expect(() => TradeNormalisationJob.parse(event.payload)).not.toThrow();
+    // it to the report-parse queue — assert both contracts here.
+    expect(() => ReportParseJob.parse(event.payload)).not.toThrow();
     expect(
       routeOutboxEvent({ ...event, payload: event.payload as Record<string, unknown> })?.queue,
-    ).toBe(QUEUE_NAMES.tradeNormalisation);
+    ).toBe(QUEUE_NAMES.reportParse);
   });
 
-  it("does not emit when no run is supplied, but still stores the ledger as evidence", async () => {
+  it("omits backtestRunId from the job payload when no run is supplied", async () => {
     const seeded = await seed();
 
-    const result = await completeReportUpload(db, stubS3(ledgerCsv), "bucket", {
+    await completeReportUpload(db, stubS3(), "bucket", {
       organisationId: seeded.organisationId,
       verificationId: seeded.verificationId,
       kind: "LIST_OF_TRADES",
@@ -144,19 +143,15 @@ describe.skipIf(!available)("upload completion → normalisation handoff", () =>
       uploadedByUserId: seeded.userId,
     });
 
-    expect(result.normalisationQueued).toBe(false);
-    const [upload] = await db
-      .select()
-      .from(reportUploads)
-      .where(eq(reportUploads.id, result.reportUploadId));
-    expect(upload?.parsedTrades).toHaveLength(3);
-    expect(await readEmitted()).toHaveLength(0);
+    const [event] = await readEmitted();
+    const payload = ReportParseJob.parse(event?.payload);
+    expect(payload.backtestRunId).toBeUndefined();
   });
 
-  it("does not emit for a performance summary, which yields no ledger", async () => {
+  it("emits unconditionally for a Performance Summary too — kind-based branching is the worker's job now", async () => {
     const seeded = await seed();
 
-    const result = await completeReportUpload(db, stubS3(summaryCsv), "bucket", {
+    await completeReportUpload(db, stubS3(), "bucket", {
       organisationId: seeded.organisationId,
       verificationId: seeded.verificationId,
       kind: "PERFORMANCE_SUMMARY",
@@ -165,37 +160,8 @@ describe.skipIf(!available)("upload completion → normalisation handoff", () =>
       backtestRunId: seeded.backtestRunId,
     });
 
-    expect(result.normalisationQueued).toBe(false);
-    const [upload] = await db
-      .select()
-      .from(reportUploads)
-      .where(eq(reportUploads.id, result.reportUploadId));
-    expect(upload?.parsedMetrics).not.toBeNull();
-    expect(upload?.parsedTrades).toBeNull();
-    expect(await readEmitted()).toHaveLength(0);
-  });
-
-  it("stores a failed parse without emitting, keeping the raw artefact", async () => {
-    const seeded = await seed();
-
-    const result = await completeReportUpload(db, stubS3("not,a,tradingview,export\n1,2,3,4"), "bucket", {
-      organisationId: seeded.organisationId,
-      verificationId: seeded.verificationId,
-      kind: "LIST_OF_TRADES",
-      objectKey: "key.csv",
-      uploadedByUserId: seeded.userId,
-      backtestRunId: seeded.backtestRunId,
-    });
-
-    expect(result.normalisationQueued).toBe(false);
-    const [upload] = await db
-      .select()
-      .from(reportUploads)
-      .where(eq(reportUploads.id, result.reportUploadId));
-    // A rejected parse must not cost us the evidence (CLAUDE.md 15.1).
-    expect(upload?.parseStatus).toBe("FAILED");
-    expect(upload?.rawArtefactId).toBe(result.artefactId);
-    expect(upload?.parsedTrades).toBeNull();
-    expect(await readEmitted()).toHaveLength(0);
+    const [event] = await readEmitted();
+    expect(event).toBeDefined();
+    expect(ReportParseJob.parse(event?.payload).kind).toBe("PERFORMANCE_SUMMARY");
   });
 });

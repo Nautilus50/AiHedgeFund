@@ -24,6 +24,12 @@ export interface RoutedJob {
  */
 export function routeOutboxEvent(row: OutboxRow): RoutedJob | undefined {
   switch (row.eventType) {
+    case "report_upload.uploaded":
+      return {
+        queue: QUEUE_NAMES.reportParse,
+        jobId: deterministicJobId(QUEUE_NAMES.reportParse, row.id),
+        data: row.payload,
+      };
     case "report_upload.parsed":
       return {
         queue: QUEUE_NAMES.tradeNormalisation,

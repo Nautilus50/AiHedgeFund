@@ -10,8 +10,6 @@ import {
   strategyVersions,
   tradingviewVerifications,
 } from "@arf-os/db";
-import { parseListOfTrades, parsePerformanceSummary } from "@arf-os/pine";
-import type { ListOfTradesParseResult, PerformanceSummaryParseResult, TradingViewParseFailure } from "@arf-os/pine";
 import {
   buildArtefactKey,
   createPresignedUploadUrl,
@@ -85,10 +83,6 @@ export async function createReportUploadIntent(
   return createPresignedUploadUrl(s3, bucket, objectKey, { contentType: "text/csv" });
 }
 
-export type ReportParseOutcome =
-  | { kind: "LIST_OF_TRADES"; result: ListOfTradesParseResult | TradingViewParseFailure }
-  | { kind: "PERFORMANCE_SUMMARY"; result: PerformanceSummaryParseResult | TradingViewParseFailure };
-
 export interface CompleteUploadInput {
   organisationId: string;
   verificationId: string;
@@ -107,17 +101,16 @@ export interface CompleteUploadInput {
 export interface CompleteUploadResult {
   artefactId: string;
   reportUploadId: string;
-  parseOutcome: ReportParseOutcome;
-  /** True when a report_upload.parsed event was emitted, i.e. normalisation will run. */
-  normalisationQueued: boolean;
 }
 
 /**
  * Step 2 of upload: fetch the object back from R2, independently compute
- * its checksum, persist the raw artefact + report_upload row, then attempt
- * to parse it. The raw artefact and its checksum are always preserved even
- * when parsing fails — CLAUDE.md 15.1 never discards a raw upload because
- * the parser rejected it; the parse failure becomes a warning, not data loss.
+ * its checksum, persist the raw artefact + a PENDING report_upload row, then
+ * emit an outbox event so a worker parses it asynchronously. This request
+ * handler stays fast (CLAUDE.md 16.1) — parsing runs as its own job
+ * (`handleReportParse`), not synchronously here. The raw artefact and its
+ * checksum are always durable before parsing is even attempted, so a failed
+ * or slow parse never risks the upload itself (CLAUDE.md 15.1).
  */
 export async function completeReportUpload(
   db: Database,
@@ -127,42 +120,9 @@ export async function completeReportUpload(
 ): Promise<CompleteUploadResult> {
   const { bytes, contentType } = await fetchObject(s3, bucket, input.objectKey);
   const checksumSha256 = sha256Hex(bytes);
-  const text = new TextDecoder().decode(bytes);
 
   const artefactId = generateId<string>();
   const reportUploadId = generateId<string>();
-
-  const parseOutcome: ReportParseOutcome =
-    input.kind === "LIST_OF_TRADES"
-      ? { kind: "LIST_OF_TRADES", result: parseListOfTrades(text) }
-      : { kind: "PERFORMANCE_SUMMARY", result: parsePerformanceSummary(text) };
-
-  const parseStatus = parseOutcome.result.ok ? "PARSED" : "FAILED";
-  const parserVersion = parseOutcome.result.ok ? parseOutcome.result.parserVersion : undefined;
-  const parseWarnings = parseOutcome.result.ok
-    ? parseOutcome.result.warnings.map((w) => `${w.code}: ${w.message}`)
-    : [parseOutcome.result.message];
-
-  // A Performance Summary's reported metrics are the only TradingView side
-  // parity has to compare against, so they are persisted here rather than
-  // returned and discarded. Stored verbatim — titles and source column
-  // headers as the parser produced them, no reinterpretation (CLAUDE.md 15.2).
-  const parsedMetrics =
-    parseOutcome.kind === "PERFORMANCE_SUMMARY" && parseOutcome.result.ok
-      ? parseOutcome.result.metrics
-      : null;
-
-  // Likewise for a trade ledger: normalisation reads this rather than
-  // re-fetching and re-parsing the raw CSV, so the ledger it writes is
-  // traceable to one stored parse result and one parser version.
-  const parsedTrades =
-    parseOutcome.kind === "LIST_OF_TRADES" && parseOutcome.result.ok ? parseOutcome.result.trades : null;
-
-  // Only a successfully parsed ledger attached to a known run can be
-  // normalised. Without both, the upload is still stored — it is evidence
-  // either way — but no event is emitted, because there is nothing a
-  // consumer could do with it.
-  const normalisationQueued = parsedTrades !== null && input.backtestRunId !== undefined;
 
   await db.transaction(async (tx) => {
     await tx.insert(artefacts).values({
@@ -180,35 +140,37 @@ export async function completeReportUpload(
       verificationId: input.verificationId,
       kind: input.kind,
       rawArtefactId: artefactId,
-      parseStatus,
-      parserVersion,
-      parseWarnings,
-      parsedMetrics,
-      parsedTrades,
       uploadedByUserId: input.uploadedByUserId,
+      // parseStatus defaults to PENDING; the report-parse worker moves it to
+      // PARSED/FAILED once it processes the job below.
     });
 
     // Transactional outbox: committed with the rows it describes, so the
     // event cannot exist without the upload nor be lost after it
-    // (CLAUDE.md 9.3). The relay routes it to trade normalisation.
-    if (normalisationQueued) {
-      const now = new Date();
-      await tx.insert(outboxEvents).values({
-        id: generateId<string>(),
-        eventType: "report_upload.parsed",
-        eventVersion: "1.0.0",
-        aggregateId: reportUploadId,
-        aggregateVersion: now.getTime().toString(),
-        correlationId: generateId<string>(),
-        actor: input.uploadedByUserId,
-        // TradeNormalisationJob's exact shape.
-        payload: { backtestRunId: input.backtestRunId, reportUploadId },
-        createdAt: now,
-      });
-    }
+    // (CLAUDE.md 9.3). The relay routes it to the report-parse queue.
+    const now = new Date();
+    await tx.insert(outboxEvents).values({
+      id: generateId<string>(),
+      eventType: "report_upload.uploaded",
+      eventVersion: "1.0.0",
+      aggregateId: reportUploadId,
+      aggregateVersion: now.getTime().toString(),
+      correlationId: generateId<string>(),
+      actor: input.uploadedByUserId,
+      // ReportParseJob's exact shape.
+      payload: {
+        reportUploadId,
+        verificationId: input.verificationId,
+        organisationId: input.organisationId,
+        objectKey: input.objectKey,
+        kind: input.kind,
+        backtestRunId: input.backtestRunId,
+      },
+      createdAt: now,
+    });
   });
 
-  return { artefactId, reportUploadId, parseOutcome, normalisationQueued };
+  return { artefactId, reportUploadId };
 }
 
 /**

@@ -254,66 +254,72 @@ export function registerStrategyRoutes(app: FastifyInstance, deps: StrategyRoute
     reply.code(200).send(result);
   });
 
-  app.post("/v1/strategy-versions/:id/decisions", async (request, reply) => {
-    const auth = request.requireAuth();
-    if (!requireRoleOr403(request, reply, auth.role, ["COMMITTEE_MEMBER", "ADMIN"])) return;
-    const { id } = request.params as { id: string };
+  app.post(
+    "/v1/strategy-versions/:id/decisions",
+    // Stricter than the global default: a committee decision is an audited,
+    // infrequent human action, not a UI polling endpoint (CLAUDE.md 19).
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const auth = request.requireAuth();
+      if (!requireRoleOr403(request, reply, auth.role, ["COMMITTEE_MEMBER", "ADMIN"])) return;
+      const { id } = request.params as { id: string };
 
-    const parsed = RecordDecisionInput.omit({ strategyVersionId: true }).safeParse(request.body);
-    if (!parsed.success) {
-      sendProblem(reply, {
-        status: 422,
-        title: "Invalid decision",
-        detail: "Request body failed validation.",
-        instance: request.url,
-        validationErrors: parsed.error.issues,
+      const parsed = RecordDecisionInput.omit({ strategyVersionId: true }).safeParse(request.body);
+      if (!parsed.success) {
+        sendProblem(reply, {
+          status: 422,
+          title: "Invalid decision",
+          detail: "Request body failed validation.",
+          instance: request.url,
+          validationErrors: parsed.error.issues,
+        });
+        return;
+      }
+
+      const idempotencyKey = requireIdempotencyKey(request, reply);
+      if (!idempotencyKey) return;
+
+      const fullInput = { strategyVersionId: id, ...parsed.data };
+
+      const idem = await checkIdempotency(deps.db, idempotencyKey, fullInput);
+      if (idem.status === "CONFLICT") {
+        sendProblem(reply, { status: 409, title: "Idempotency-Key conflict", detail: "Key reused with a different body.", instance: request.url });
+        return;
+      }
+      if (idem.status === "REPLAY") {
+        reply.code(200).send(idem.storedResponse);
+        return;
+      }
+
+      const result = await recordCommitteeDecision(
+        deps.db,
+        deps.workflow,
+        { id: auth.userId, roles: [auth.role] },
+        idempotencyKey,
+        fullInput,
+      );
+
+      if (!result.ok) {
+        sendProblem(reply, {
+          status: 409,
+          title: "Decision rejected by workflow policy",
+          detail: result.message,
+          instance: request.url,
+          code: result.reasonCode,
+        });
+        return;
+      }
+
+      await recordIdempotency(deps.db, {
+        idempotencyKey,
+        organisationId: auth.organisationId,
+        requestBody: fullInput,
+        responseBody: result,
       });
-      return;
-    }
 
-    const idempotencyKey = requireIdempotencyKey(request, reply);
-    if (!idempotencyKey) return;
-
-    const fullInput = { strategyVersionId: id, ...parsed.data };
-
-    const idem = await checkIdempotency(deps.db, idempotencyKey, fullInput);
-    if (idem.status === "CONFLICT") {
-      sendProblem(reply, { status: 409, title: "Idempotency-Key conflict", detail: "Key reused with a different body.", instance: request.url });
-      return;
-    }
-    if (idem.status === "REPLAY") {
-      reply.code(200).send(idem.storedResponse);
-      return;
-    }
-
-    const result = await recordCommitteeDecision(
-      deps.db,
-      deps.workflow,
-      { id: auth.userId, roles: [auth.role] },
-      idempotencyKey,
-      fullInput,
-    );
-
-    if (!result.ok) {
-      sendProblem(reply, {
-        status: 409,
-        title: "Decision rejected by workflow policy",
-        detail: result.message,
-        instance: request.url,
-        code: result.reasonCode,
-      });
-      return;
-    }
-
-    await recordIdempotency(deps.db, {
-      idempotencyKey,
-      organisationId: auth.organisationId,
-      requestBody: fullInput,
-      responseBody: result,
-    });
-
-    reply.code(201).send(result);
-  });
+      reply.code(201).send(result);
+    },
+  );
 
   app.get("/v1/strategy-versions/:id/audit", async (request, reply) => {
     const auth = request.requireAuth();

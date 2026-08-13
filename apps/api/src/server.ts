@@ -1,8 +1,10 @@
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { createDatabase } from "@arf-os/db";
 import { createWorkflowService, DrizzleWorkflowRepository } from "@arf-os/workflow";
+import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
 import { createObjectStoreClient } from "./services/object-store.js";
 import { registerRoutes } from "./routes/index.js";
@@ -32,6 +34,26 @@ async function buildServer() {
   const db = createDatabase(requireEnv("DATABASE_URL"));
   await registerAuth(app, { db, clerkSecretKey: requireEnv("CLERK_SECRET_KEY") });
 
+  // Registered after auth, so its onRequest hook runs second and can key on
+  // request.auth.organisationId — every caller inside one org shares a
+  // budget, rather than each caller behind a shared NAT tripping the limit
+  // for everyone else (CLAUDE.md 19: rate limit public endpoints). Anonymous
+  // requests (no resolved auth) fall back to IP.
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: "1 minute",
+    keyGenerator: (request) => request.auth?.organisationId ?? request.ip,
+    errorResponseBuilder: (request, context) =>
+      buildProblemDetails({
+        status: 429,
+        title: "Too Many Requests",
+        detail: `Rate limit exceeded, retry in ${context.after}.`,
+        instance: request.url,
+        code: "RATE_LIMITED",
+      }),
+  });
+
   const bucket = requireEnv("OBJECT_STORE_BUCKET");
   const s3 = createObjectStoreClient({
     endpoint: requireEnv("OBJECT_STORE_ENDPOINT"),
@@ -51,6 +73,16 @@ async function buildServer() {
         detail: error.message,
         instance: request.url,
       });
+      return;
+    }
+    // A plugin's errorResponseBuilder (e.g. rate-limit above) that throws an
+    // already-shaped ProblemDetails object carries its own HTTP status in
+    // `.status`. A thrown plain object has no `.statusCode` for Fastify's
+    // own error machinery to pick up, so without applying it explicitly here
+    // the correct JSON body would ship under an incorrect default 200.
+    const problem = error as unknown as { status?: unknown };
+    if (typeof problem.status === "number") {
+      reply.code(problem.status).type("application/problem+json").send(error);
       return;
     }
     reply.send(error);
