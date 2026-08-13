@@ -24,7 +24,11 @@ export const strategies = pgTable("strategies", {
     .notNull()
     .references(() => campaigns.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 — listStrategies' cursor pagination round-trips this
+  // column through a JS `Date` (millisecond precision); without capping the
+  // column to match, the cursor row spuriously re-matches itself on the
+  // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });
 
 /**

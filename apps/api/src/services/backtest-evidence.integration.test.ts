@@ -217,6 +217,43 @@ describe.skipIf(!available)("backtest evidence reads (integration)", () => {
     expect(ids.has(page.page.items[0]?.id as string)).toBe(true);
   });
 
+  /**
+   * Regression test for the cursor-pagination precision bug (see
+   * packages/db/src/schema/backtest.ts's `backtest_runs.created_at`
+   * comment, and its sibling fix for dataset_versions.created_at): without
+   * `precision: 3` on the column, a row whose real timestamp has nonzero
+   * sub-millisecond digits spuriously re-matches its own
+   * millisecond-truncated cursor on the next page. Walks every page rather
+   * than checking one page's shape, so a duplicated or skipped row anywhere
+   * in the sequence is caught.
+   */
+  it("never duplicates or skips a run across a full pagination walk", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org);
+    const created: string[] = [];
+    for (let i = 0; i < 11; i++) {
+      created.push(await seedRun(strategy.strategyVersionId));
+    }
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const result = await listBacktestRuns(db, org.organisationId, {
+        strategyVersionId: strategy.strategyVersionId,
+        cursor,
+        limit: 3,
+      });
+      if (!result.ok) throw new Error("expected ok result");
+      seen.push(...result.page.items.map((r) => r.id));
+      if (!result.page.nextCursor) break;
+      cursor = result.page.nextCursor;
+    }
+
+    expect(seen).toHaveLength(created.length);
+    expect(new Set(seen).size).toBe(created.length);
+    expect(new Set(seen)).toEqual(new Set(created));
+  });
+
   it("never lists another organisation's backtest runs", async () => {
     const alpha = await seedOrganisation(db, { slug: "alpha" });
     const beta = await seedOrganisation(db, { slug: "beta" });

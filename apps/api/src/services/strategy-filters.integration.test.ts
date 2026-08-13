@@ -258,4 +258,36 @@ describe.skipIf(!available)("listStrategies filters (integration)", () => {
     expect(result.page.items).toEqual([]);
     expect(result.page.nextCursor).toBeUndefined();
   });
+
+  /**
+   * Regression test for the cursor-pagination precision bug (see
+   * packages/db/src/schema/strategy.ts's `strategies.created_at` comment,
+   * and its sibling fix for dataset_versions.created_at): without
+   * `precision: 3` on the column, a row whose real timestamp has nonzero
+   * sub-millisecond digits spuriously re-matches its own
+   * millisecond-truncated cursor on the next page. Walks every page rather
+   * than checking one page's shape, so a duplicated or skipped row anywhere
+   * in the sequence is caught.
+   */
+  it("never duplicates or skips a strategy across a full pagination walk", async () => {
+    const org = await seedOrganisation(db, { slug: "filters-pagination-walk" });
+    const created: string[] = [];
+    for (let i = 0; i < 11; i++) {
+      created.push(await seedStrategy(org, { name: `Strategy ${i}`, workflowState: "PINE_DEVELOPMENT" }));
+    }
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const result = await listStrategies(db, org.organisationId, { cursor, limit: 3 });
+      if (!result.ok) throw new Error("expected ok result");
+      seen.push(...result.page.items.map((s) => s.id));
+      if (!result.page.nextCursor) break;
+      cursor = result.page.nextCursor;
+    }
+
+    expect(seen).toHaveLength(created.length);
+    expect(new Set(seen).size).toBe(created.length);
+    expect(new Set(seen)).toEqual(new Set(created));
+  });
 });

@@ -21,7 +21,14 @@ export const campaigns = pgTable("campaigns", {
   createdByUserId: uuid("created_by_user_id")
     .notNull()
     .references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 (milliseconds) is deliberate, not decorative: listCampaigns'
+  // cursor pagination round-trips this column through a JS `Date`, which
+  // cannot represent Postgres's default microsecond precision. Without
+  // capping the column at the same precision the cursor can hold,
+  // `gt(createdAt, cursorDate)` is spuriously true for the cursor row's own
+  // record, duplicating it onto the next page (same bug/fix as
+  // dataset_versions.created_at in datasets.ts).
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

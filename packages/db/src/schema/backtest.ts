@@ -38,7 +38,11 @@ export const backtestRuns = pgTable("backtest_runs", {
   errorCode: text("error_code"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // precision: 3 — listBacktestRuns' cursor pagination round-trips this
+  // column through a JS `Date` (millisecond precision); without capping the
+  // column to match, the cursor row spuriously re-matches itself on the
+  // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });
 
 export const tradeDirectionEnum = pgEnum("trade_direction", ["LONG", "SHORT"]);

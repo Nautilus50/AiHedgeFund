@@ -535,7 +535,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 234 unit tests, 120 integration tests, 3 end-to-end tests
+- 234 unit tests, 125 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
