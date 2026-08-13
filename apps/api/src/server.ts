@@ -3,7 +3,6 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { createDatabase } from "@arf-os/db";
-import { createWorkflowService, DrizzleWorkflowRepository } from "@arf-os/workflow";
 import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
 import { createObjectStoreClient } from "./services/object-store.js";
@@ -62,7 +61,6 @@ async function buildServer() {
     secretAccessKey: requireEnv("OBJECT_STORE_SECRET_ACCESS_KEY"),
     region: process.env.OBJECT_STORE_REGION,
   });
-  const workflow = createWorkflowService(new DrizzleWorkflowRepository(db));
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error.name === "UnauthorizedError") {
@@ -99,7 +97,7 @@ async function buildServer() {
     return { userId: auth.userId, organisationId: auth.organisationId, role: auth.role };
   });
 
-  registerRoutes(app, { db, s3, bucket, workflow });
+  registerRoutes(app, { db, s3, bucket });
 
   return app;
 }

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { generateId } from "@arf-os/contracts";
-import type { Database } from "@arf-os/db";
+import type { DatabaseClient } from "@arf-os/db";
 import {
   auditEvents,
   backtestRuns,
@@ -41,9 +41,18 @@ function toRecord(command: TransitionCommand, id: string, createdAt: Date): Tran
  * event, and outbox event are written in a single transaction
  * (CLAUDE.md 9.3). Requires a live PostgreSQL instance — exercised by
  * integration tests in Milestone 13, not by this package's unit tests.
+ *
+ * Accepts either the top-level `Database` or an already-open transaction.
+ * `applyTransition` always calls `this.db.transaction(...)`: given the
+ * top-level client that opens a real transaction as before; given an
+ * already-open transaction (e.g. one a caller opened to also write a
+ * committee decision alongside the transition) it opens a savepoint within
+ * it instead, so the whole thing commits or rolls back together as one
+ * unit — the caller composes atomicity just by constructing this adapter
+ * around their own `tx` rather than the top-level `db` (CLAUDE.md 9.3).
  */
 export class DrizzleWorkflowRepository implements WorkflowRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DatabaseClient) {}
 
   async getStrategyVersion(strategyVersionId: string): Promise<StrategyVersionSnapshot | undefined> {
     const [row] = await this.db

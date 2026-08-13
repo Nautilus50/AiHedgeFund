@@ -401,4 +401,67 @@ describe.skipIf(!available)("DrizzleWorkflowRepository (integration)", () => {
       expect(outcome).toMatchObject({ ok: false, reasonCode: "VERIFICATION_REQUIRED" });
     });
   });
+
+  describe("composing into a caller's transaction", () => {
+    /**
+     * `apps/api/src/services/decisions.ts` needs a committee decision and its
+     * workflow transition to commit or roll back together (CLAUDE.md 9.3) —
+     * a crash between two separate transactions used to leave an
+     * approved/rejected version with no decision record. It achieves that by
+     * constructing `DrizzleWorkflowRepository` around its own already-open
+     * `tx` instead of the top-level `db`: `applyTransition`'s internal
+     * `this.db.transaction(...)` call then opens a savepoint within the
+     * caller's transaction rather than an independent one. This proves that
+     * mechanism directly — recordCommitteeDecision's own integration tests
+     * (apps/api/src/services/decisions.integration.test.ts) only need to show
+     * it uses this, not re-prove that it works.
+     */
+    it("rolls the transition back too when a later write in the same transaction fails", async () => {
+      const org = await seedOrganisation(db);
+      const strategy = await seedStrategyVersion(db, org, { workflowState: "TRADINGVIEW_VERIFICATION" });
+
+      await expect(
+        db.transaction(async (tx) => {
+          const txService = createWorkflowService(new DrizzleWorkflowRepository(tx));
+          const outcome = await txService.transition({
+            idempotencyKey: "atomic-rollback-key",
+            strategyVersionId: strategy.strategyVersionId,
+            to: "PAPER_APPROVAL_REVIEW",
+            actorId: org.userId,
+            actorRoles: ["OPERATOR"],
+            evidenceIds: ["e1"],
+            reasonCodes: ["R1"],
+            freeTextSummary: "about to fail",
+          });
+          // The transition itself succeeded — from applyTransition's own
+          // point of view nothing is wrong yet.
+          expect(outcome.ok).toBe(true);
+
+          // Simulate the caller's next write (e.g. inserting a committee
+          // decision row) failing after the transition already "succeeded".
+          throw new Error("simulated failure after a successful transition");
+        }),
+      ).rejects.toThrow("simulated failure after a successful transition");
+
+      const [version] = await db
+        .select({ workflowState: strategyVersions.workflowState })
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, strategy.strategyVersionId));
+      // Not PAPER_APPROVAL_REVIEW — the whole transaction rolled back,
+      // taking the transition's savepoint with it.
+      expect(version?.workflowState).toBe("TRADINGVIEW_VERIFICATION");
+
+      const outboxRows = await db
+        .select()
+        .from(outboxEvents)
+        .where(eq(outboxEvents.aggregateId, strategy.strategyVersionId));
+      expect(outboxRows).toHaveLength(0);
+
+      const idempotencyRows = await db
+        .select()
+        .from(idempotencyRecords)
+        .where(eq(idempotencyRecords.idempotencyKey, "atomic-rollback-key"));
+      expect(idempotencyRows).toHaveLength(0);
+    });
+  });
 });

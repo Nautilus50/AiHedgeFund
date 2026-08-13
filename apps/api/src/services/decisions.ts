@@ -3,7 +3,7 @@ import { generateId } from "@arf-os/contracts";
 import type { OrganisationRole, WorkflowState } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import { committeeDecisions, outboxEvents } from "@arf-os/db";
-import type { WorkflowService } from "@arf-os/workflow";
+import { createWorkflowService, DrizzleWorkflowRepository } from "@arf-os/workflow";
 
 export const RecordDecisionInput = z.object({
   strategyVersionId: z.string().uuid(),
@@ -42,48 +42,57 @@ export type RecordDecisionResult =
 
 /**
  * Records a committee decision and drives the corresponding workflow
- * transition. Callers (route handlers) are expected to wrap this whole
- * operation behind the API-level Idempotency-Key check
- * (lib/idempotency.ts) — that is the primary protection against duplicate
- * decisions; the workflow's own idempotency check (same key) is
- * defense-in-depth for the transition specifically, not a substitute.
+ * transition, as one atomic unit (CLAUDE.md 9.3). Callers (route handlers)
+ * are expected to wrap this whole operation behind the API-level
+ * Idempotency-Key check (lib/idempotency.ts) — that is the primary
+ * protection against duplicate decisions; the workflow's own idempotency
+ * check (same key) is defense-in-depth for the transition specifically, not
+ * a substitute.
  *
- * The decision row and its outbox event are written in one transaction
- * (CLAUDE.md 9.3) — the earlier `workflow.transition()` call is its own,
- * separate transaction inside the workflow package, so a crash between the
- * two still leaves an accepted transition with no decision record. That
- * narrower gap is pre-existing and not fixed here; this only guarantees
- * that once a decision is recorded, its read-model-refresh event was too.
+ * The transition and the decision record used to be two separate
+ * transactions — `workflow.transition()` committed on its own, and only
+ * afterwards did a second transaction write the decision row. A crash
+ * between the two left an approved/rejected strategy version with no
+ * decision explaining why. Now everything runs inside one
+ * `db.transaction()`: a fresh, transaction-scoped `DrizzleWorkflowRepository`
+ * is constructed around `tx` rather than the top-level `db`, so
+ * `applyTransition`'s own `.transaction()` call opens a savepoint within
+ * this one instead of an independent transaction — the transition and the
+ * decision now commit or roll back together as a single unit. A rejected
+ * transition writes nothing at all (the rejection happens before any write
+ * is attempted), so the transaction simply commits empty in that case,
+ * which changes nothing.
  */
 export async function recordCommitteeDecision(
   db: Database,
-  workflow: WorkflowService,
   actor: { id: string; roles: readonly OrganisationRole[] },
   organisationId: string,
   idempotencyKey: string,
   input: RecordDecisionInput,
 ): Promise<RecordDecisionResult> {
-  const transitionOutcome = await workflow.transition({
-    idempotencyKey,
-    strategyVersionId: input.strategyVersionId,
-    to: targetStateFor(input.decision),
-    actorId: actor.id,
-    actorRoles: actor.roles,
-    evidenceIds: input.evidenceIds,
-    reasonCodes: input.reasonCodes,
-    freeTextSummary: input.decision === "PAPER_APPROVED" ? input.positiveCase : input.rejectionCase,
-    humanOverride: input.humanOverride,
-    overrideReason: input.overrideReason,
-  });
+  return db.transaction(async (tx) => {
+    const workflow = createWorkflowService(new DrizzleWorkflowRepository(tx));
 
-  if (!transitionOutcome.ok) {
-    return { ok: false, reasonCode: transitionOutcome.reasonCode, message: transitionOutcome.message };
-  }
+    const transitionOutcome = await workflow.transition({
+      idempotencyKey,
+      strategyVersionId: input.strategyVersionId,
+      to: targetStateFor(input.decision),
+      actorId: actor.id,
+      actorRoles: actor.roles,
+      evidenceIds: input.evidenceIds,
+      reasonCodes: input.reasonCodes,
+      freeTextSummary: input.decision === "PAPER_APPROVED" ? input.positiveCase : input.rejectionCase,
+      humanOverride: input.humanOverride,
+      overrideReason: input.overrideReason,
+    });
 
-  const decisionId = generateId<string>();
-  const now = new Date();
+    if (!transitionOutcome.ok) {
+      return { ok: false, reasonCode: transitionOutcome.reasonCode, message: transitionOutcome.message };
+    }
 
-  await db.transaction(async (tx) => {
+    const decisionId = generateId<string>();
+    const now = new Date();
+
     await tx.insert(committeeDecisions).values({
       id: decisionId,
       strategyVersionId: input.strategyVersionId,
@@ -112,7 +121,7 @@ export async function recordCommitteeDecision(
       payload: { organisationId, aggregateType: "strategy_version", aggregateId: input.strategyVersionId },
       createdAt: now,
     });
-  });
 
-  return { ok: true, decisionId };
+    return { ok: true, decisionId };
+  });
 }

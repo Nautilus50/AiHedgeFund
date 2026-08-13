@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Database } from "@arf-os/db";
-import type { WorkflowService } from "@arf-os/workflow";
 import { checkIdempotency, recordIdempotency } from "../lib/idempotency.js";
 import { sendProblem } from "../lib/problem-details.js";
 import { requireIdempotencyKey, requireRoleOr403 } from "../lib/request-helpers.js";
@@ -19,7 +18,6 @@ import {
 
 export interface StrategyRouteDeps {
   db: Database;
-  workflow: WorkflowService;
 }
 
 const CreateStrategyBody = z.object({
@@ -293,7 +291,6 @@ export function registerStrategyRoutes(app: FastifyInstance, deps: StrategyRoute
 
       const result = await recordCommitteeDecision(
         deps.db,
-        deps.workflow,
         { id: auth.userId, roles: [auth.role] },
         auth.organisationId,
         idempotencyKey,

@@ -14,7 +14,6 @@ import {
   type Database,
 } from "@arf-os/db";
 import { QUEUE_NAMES, ReadModelRefreshJob, routeOutboxEvent } from "@arf-os/event-bus";
-import { createWorkflowService, DrizzleWorkflowRepository, type WorkflowService } from "@arf-os/workflow";
 import { recordCommitteeDecision } from "./decisions.js";
 
 const available = await isTestDatabaseAvailable();
@@ -22,16 +21,18 @@ const available = await isTestDatabaseAvailable();
 /**
  * `recordCommitteeDecision` had no direct test coverage before this — it
  * drives a workflow transition and then records the decision, and this
- * suite now also proves the second half emits a correctly shaped
- * read-model-refresh event, atomically with the decision row (CLAUDE.md 9.3).
+ * suite proves both halves: the second half emits a correctly shaped
+ * read-model-refresh event, and the two halves commit as one atomic unit
+ * (CLAUDE.md 9.3) — the mechanism that makes that true (a transaction-scoped
+ * DrizzleWorkflowRepository composing as a savepoint) is proven directly in
+ * packages/workflow/src/adapters/drizzle-repository.integration.test.ts;
+ * this suite only needs to show recordCommitteeDecision actually uses it.
  */
 describe.skipIf(!available)("recordCommitteeDecision (integration)", () => {
   let db: Database;
-  let workflow: WorkflowService;
 
   beforeAll(() => {
     db = createTestDatabase();
-    workflow = createWorkflowService(new DrizzleWorkflowRepository(db));
   });
 
   afterAll(async () => {
@@ -52,7 +53,6 @@ describe.skipIf(!available)("recordCommitteeDecision (integration)", () => {
 
     const result = await recordCommitteeDecision(
       db,
-      workflow,
       { id: committeeUserId, roles: ["COMMITTEE_MEMBER"] },
       org.organisationId,
       generateId<string>(),
@@ -107,7 +107,6 @@ describe.skipIf(!available)("recordCommitteeDecision (integration)", () => {
     // The creator cannot decide on their own version (CLAUDE.md 3.4).
     const result = await recordCommitteeDecision(
       db,
-      workflow,
       { id: creatorId, roles: ["COMMITTEE_MEMBER"] },
       org.organisationId,
       generateId<string>(),

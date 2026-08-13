@@ -511,7 +511,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Application monorepo | Built — 6 apps, 11 packages |
 | Contracts, database, migrations | Built |
 | Auth and organisation boundary | Built (Clerk, organisation-scoped) |
-| Workflow engine and audit | Built. `PAPER_APPROVAL_REVIEW → PAPER_APPROVED` is hard-blocked (policy layer, not just UI) unless the strategy version has a PASSED TradingView verification and no FAIL parity report — a caller cannot approve around this by supplying arbitrary evidence IDs |
+| Workflow engine and audit | Built. `PAPER_APPROVAL_REVIEW → PAPER_APPROVED` is hard-blocked (policy layer, not just UI) unless the strategy version has a PASSED TradingView verification and no FAIL parity report — a caller cannot approve around this by supplying arbitrary evidence IDs. A committee decision and its workflow transition commit atomically (`DrizzleWorkflowRepository` constructed around the caller's own open transaction, so its internal `applyTransition` opens a savepoint rather than an independent transaction) — a crash between the two can no longer leave an approved/rejected version with no decision record |
 | Strategy registry | Built (immutable versions, lineage, SDL, Pine revisions) |
 | Object storage and presigned uploads | Built (S3-compatible) |
 | TradingView CSV ingestion | Built (both export variants, versioned parsers). Parsing runs as its own async BullMQ job (`report-parse`, driven by the outbox), not synchronously inside the upload-completion request — the API only fetches, checksums, and durably stores the raw upload before handing off |
@@ -533,7 +533,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 213 unit tests, 102 integration tests, 3 end-to-end tests
+- 213 unit tests, 103 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
