@@ -4,6 +4,7 @@ import type { Database } from "@arf-os/db";
 import { backtestRuns, datasetVersions, outboxEvents, strategies, strategyVersions, tradingviewVerifications } from "@arf-os/db";
 
 export interface CreateBacktestRunInput {
+  organisationId: string;
   strategyVersionId: string;
   runnerType: "LOCAL_RUNNER" | "TRADINGVIEW";
   runnerVersion: string;
@@ -68,6 +69,7 @@ export async function createBacktestRun(
         aggregateId: backtestRunId,
         aggregateVersion: now.getTime().toString(),
         correlationId: generateId<string>(),
+        organisationId: input.organisationId,
         actor: input.actor,
         // LocalRunnerExecutionJob's exact shape.
         payload: { backtestRunId },

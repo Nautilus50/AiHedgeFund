@@ -42,6 +42,7 @@ export async function ingestTradingViewSignal(
   const [deployment] = await db
     .select({
       id: forwardDeployments.id,
+      organisationId: forwardDeployments.organisationId,
       strategyVersionId: forwardDeployments.strategyVersionId,
       symbol: forwardDeployments.symbol,
       timeframe: forwardDeployments.timeframe,
@@ -64,10 +65,19 @@ export async function ingestTradingViewSignal(
 
   const rejectionReason = validateAgainstDeployment(payload, deployment);
   if (rejectionReason) {
-    return persistSignalEvent(db, deployment.id, idempotencyKey, payload, direction, "REJECTED", rejectionReason);
+    return persistSignalEvent(
+      db,
+      deployment.id,
+      deployment.organisationId,
+      idempotencyKey,
+      payload,
+      direction,
+      "REJECTED",
+      rejectionReason,
+    );
   }
 
-  return persistSignalEvent(db, deployment.id, idempotencyKey, payload, direction, "PENDING", null);
+  return persistSignalEvent(db, deployment.id, deployment.organisationId, idempotencyKey, payload, direction, "PENDING", null);
 }
 
 function validateAgainstDeployment(
@@ -96,6 +106,7 @@ function validateAgainstDeployment(
 async function persistSignalEvent(
   db: Database,
   deploymentId: string,
+  organisationId: string,
   idempotencyKey: string,
   payload: SignalEvent,
   direction: "LONG" | "SHORT" | null,
@@ -141,6 +152,7 @@ async function persistSignalEvent(
       aggregateId: signalEventId,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId,
       actor: "tradingview-webhook",
       payload: { deploymentId, signalEventId },
       createdAt: now,

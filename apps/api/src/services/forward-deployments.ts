@@ -9,7 +9,7 @@ import {
   strategies,
   strategyVersions,
 } from "@arf-os/db";
-import { generateDeploymentToken, hashToken } from "../lib/tokens.js";
+import { generateOpaqueToken, hashToken } from "../lib/tokens.js";
 
 const MAX_EVIDENCE_ROWS = 5000;
 /** Over how many of the most recent signals the health endpoint's rejection rate is computed. */
@@ -61,7 +61,7 @@ export async function createForwardDeployment(
   }
 
   const deploymentId = generateId<string>();
-  const token = generateDeploymentToken();
+  const token = generateOpaqueToken();
   const now = new Date();
 
   await db.insert(forwardDeployments).values({

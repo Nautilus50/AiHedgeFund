@@ -117,6 +117,7 @@ export async function recordCommitteeDecision(
       aggregateId: decisionId,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId,
       actor: actor.id,
       payload: { organisationId, aggregateType: "strategy_version", aggregateId: input.strategyVersionId },
       createdAt: now,

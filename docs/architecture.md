@@ -79,6 +79,10 @@ state, end to end:
 | `committee_decision.created` → `read-model-refresh` | `api` | `worker-analytics` |
 | `forward_signal.received` → `forward-signal-processing` | `api` | `worker-forward` |
 
+`backtest_run.completed` (emitted by `worker-backtest`) has no row here — it
+routes to no queue, only to `SseHub`'s poller (below). Not every outbox event
+exists to trigger a job; some exist purely to be observed.
+
 The ingestion chain runs end to end: completing an upload durably stores the
 raw artefact and hands off parsing to its own job, which — for a List of
 Trades against a known run — writes the ledger, which reconstructs equity
@@ -160,13 +164,28 @@ caller who guesses an id gets nothing. This is enforced on the upload path
 too, where object-store keys are derived from the verification row's own join
 chain rather than the request body.
 
+## Server-sent events (CLAUDE.md 17.4)
+
+First slice only, wired to one page — see [ADR 0007](adr/0007-server-sent-events.md)
+for the full design and its scope cut. Shape: a Bearer-authenticated
+`POST /v1/sse/tickets` mints a short-lived single-use ticket (browser
+`EventSource` can't carry the real Bearer token), `GET
+/v1/events/stream/:ticket` opens the stream. One in-process `SseHub` per
+`api` instance polls `outbox_events` and fans out matching rows in memory —
+not one Postgres connection per open browser tab. Messages carry only
+`{aggregateId, occurredAt}`; the client reacts by refetching, never by
+trusting the SSE payload as computed state. Wired today: backtest-run
+detail (`apps/web/app/backtest-runs/[id]/LiveRunUpdates.tsx`), listening for
+`backtest_run.completed`/`trades.normalised`. Campaign updates and
+forward-deployment health are not yet migrated to this.
+
 ## What is not built
 
 - Forward-test drift reports, a persisted health-snapshot time series, and
   live market-data-based price comparison — see ADR 0006's Alternatives for
   why each is deferred rather than half-built
 - Agent orchestration beyond the single IDEA_SCOUT fixture path
-- SSE, practice arena, portfolio research
+- SSE beyond the one page above; practice arena; portfolio research
 - Most of spec 14.12's read models (Campaign command centre, Agent
   operations, Committee queue, Forward-test health, Practice leaderboard) —
   only the Strategy Library one (`strategy_read_models`) is built, and

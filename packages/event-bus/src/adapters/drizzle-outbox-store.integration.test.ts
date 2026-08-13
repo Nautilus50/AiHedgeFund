@@ -5,6 +5,7 @@ import {
   createTestDatabase,
   isTestDatabaseAvailable,
   outboxEvents,
+  seedOrganisation,
   truncateAll,
   type Database,
 } from "@arf-os/db";
@@ -30,6 +31,7 @@ class AlwaysFailingPublisher implements JobPublisher {
 describe.skipIf(!available)("DrizzleOutboxStore (integration)", () => {
   let db: Database;
   let store: DrizzleOutboxStore;
+  let organisationId: string;
 
   beforeAll(() => {
     db = createTestDatabase();
@@ -42,6 +44,7 @@ describe.skipIf(!available)("DrizzleOutboxStore (integration)", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
+    organisationId = (await seedOrganisation(db)).organisationId;
   });
 
   async function insertEvent(eventType = "trades.normalised"): Promise<string> {
@@ -53,6 +56,7 @@ describe.skipIf(!available)("DrizzleOutboxStore (integration)", () => {
       aggregateId: generateId<string>(),
       aggregateVersion: "1",
       correlationId: generateId<string>(),
+      organisationId,
       actor: "integration-test",
       payload: { backtestRunId: generateId<string>(), initialCapital: "10000" },
     });

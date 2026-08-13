@@ -156,6 +156,7 @@ export async function completeReportUpload(
       aggregateId: reportUploadId,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId: input.organisationId,
       actor: input.uploadedByUserId,
       // ReportParseJob's exact shape.
       payload: {

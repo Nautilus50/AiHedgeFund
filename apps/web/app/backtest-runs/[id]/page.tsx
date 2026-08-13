@@ -3,6 +3,7 @@ import { apiFetchSafe } from "../../../lib/api";
 import { StateBadge } from "../../../components/Badge";
 import { EquityDrawdownChart } from "../../../components/EquityDrawdownChart";
 import { Alert, Card, CardBody, CardHead, EmptyState, Hash, Timestamp } from "../../../components/primitives";
+import { LiveRunUpdates } from "./LiveRunUpdates";
 
 interface BacktestRunDetail {
   id: string;
@@ -99,8 +100,14 @@ export default async function BacktestRunDetailPage({ params }: { params: Promis
 
   const run = runResult.data;
 
+  // Only a run still in flight has anything left to notify about — no
+  // point opening a stream for one already at a terminal status.
+  const isInFlight = run.status === "QUEUED" || run.status === "RUNNING";
+
   return (
     <>
+      {isInFlight && <LiveRunUpdates backtestRunId={run.id} />}
+
       <Link href={`/strategy-versions/${run.strategyVersionId}`} className="breadcrumb">
         ← Strategy version
       </Link>

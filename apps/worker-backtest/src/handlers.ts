@@ -3,11 +3,42 @@ import { eq } from "drizzle-orm";
 import type { BacktestPlan } from "@arf-os/contracts";
 import { BacktestSegmentKind, CostModel, StrategyDefinition, generateId } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { artefacts, backtestRuns, datasetVersions, outboxEvents, reportUploads, strategyDefinitions, trades } from "@arf-os/db";
+import {
+  artefacts,
+  backtestRuns,
+  datasetVersions,
+  outboxEvents,
+  reportUploads,
+  strategies,
+  strategyDefinitions,
+  strategyVersions,
+  trades,
+} from "@arf-os/db";
 import { createLocalPineRunner, type BacktestTrade } from "@arf-os/backtest-sdk";
 import type { ReportParseJob } from "@arf-os/event-bus";
 import { parseListOfTrades, parseOhlcvCsv, parsePerformanceSummary, type ParsedTrade } from "@arf-os/pine";
 import { fetchObjectText } from "./object-store.js";
+
+/**
+ * A `backtest_runs` row doesn't carry its own organisation — only
+ * `strategies` does. Every outbox event this file emits needs one (SSE
+ * streams filter and resume by it), so this is resolved once wherever a run
+ * id is available rather than duplicating the join at each insert site.
+ */
+async function resolveOrganisationId(db: Database, backtestRunId: string): Promise<string> {
+  const [row] = await db
+    .select({ organisationId: strategies.organisationId })
+    .from(backtestRuns)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(backtestRuns.id, backtestRunId))
+    .limit(1);
+
+  if (!row) {
+    throw new Error(`Cannot resolve organisationId for backtest run ${backtestRunId}.`);
+  }
+  return row.organisationId;
+}
 
 export interface ReportParseResult {
   parseStatus: "PARSED" | "FAILED";
@@ -73,6 +104,7 @@ export async function handleReportParse(db: Database, s3: S3Client, bucket: stri
         aggregateId: input.reportUploadId,
         aggregateVersion: now.getTime().toString(),
         correlationId: generateId<string>(),
+        organisationId: input.organisationId,
         actor: "worker-backtest",
         // TradeNormalisationJob's exact shape.
         payload: { backtestRunId: input.backtestRunId, reportUploadId: input.reportUploadId },
@@ -146,6 +178,8 @@ export async function handleTradeNormalisation(
     throw new Error(`Backtest run ${input.backtestRunId} not found.`);
   }
 
+  const organisationId = await resolveOrganisationId(db, input.backtestRunId);
+
   const parsed = upload.parsedTrades as ParsedTrade[];
   const rows = parsed.map((trade) => ({
     id: generateId<string>(),
@@ -180,6 +214,7 @@ export async function handleTradeNormalisation(
       aggregateId: input.backtestRunId,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId,
       actor: "worker-backtest",
       payload: { backtestRunId: input.backtestRunId, initialCapital: run.initialCapital },
       createdAt: now,
@@ -228,12 +263,36 @@ function tradeRow(backtestRunId: string, trade: BacktestTrade) {
  * fail identically on retry — so this is not a job failure BullMQ should
  * retry (CLAUDE.md 3.6): the job itself completes normally, having recorded
  * a failed *backtest run*.
+ *
+ * Transactional (CLAUDE.md 9.3): the status update and the `backtest_run
+ * .completed` notification it emits must both survive or both roll back —
+ * an SSE viewer resuming from a gap should never see a run whose failure
+ * was recorded but never announced, or announced but not actually recorded.
+ * Never called for `FAILED_RETRYABLE` (this handler never sets that status)
+ * — a "completed" event on a run about to retry would tell a live viewer
+ * it's done when it isn't.
  */
-async function markFailed(db: Database, backtestRunId: string, errorCode: string): Promise<void> {
-  await db
-    .update(backtestRuns)
-    .set({ status: "FAILED_TERMINAL", errorCode, completedAt: new Date() })
-    .where(eq(backtestRuns.id, backtestRunId));
+async function markFailed(db: Database, backtestRunId: string, organisationId: string, errorCode: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const now = new Date();
+    await tx
+      .update(backtestRuns)
+      .set({ status: "FAILED_TERMINAL", errorCode, completedAt: now })
+      .where(eq(backtestRuns.id, backtestRunId));
+
+    await tx.insert(outboxEvents).values({
+      id: generateId<string>(),
+      eventType: "backtest_run.completed",
+      eventVersion: "1.0.0",
+      aggregateId: backtestRunId,
+      aggregateVersion: now.getTime().toString(),
+      correlationId: generateId<string>(),
+      organisationId,
+      actor: "worker-backtest",
+      payload: { backtestRunId, status: "FAILED_TERMINAL", errorCode },
+      createdAt: now,
+    });
+  });
 }
 
 /**
@@ -257,12 +316,22 @@ export async function handleLocalRunnerExecution(
   const [run] = await db.select().from(backtestRuns).where(eq(backtestRuns.id, input.backtestRunId)).limit(1);
 
   if (!run) {
+    // No aggregate exists to attach a completion event to — genuinely
+    // should never happen (the job is only ever enqueued for a run the API
+    // just created), so left as a throw rather than a markFailed call.
     throw new Error(`Backtest run ${input.backtestRunId} not found.`);
   }
+
+  const organisationId = await resolveOrganisationId(db, run.id);
+
   if (!run.datasetVersionId) {
     // Defensive: the API only emits this job for LOCAL_RUNNER runs, and the
-    // route requires a datasetVersionId for those.
-    throw new Error(`Backtest run ${input.backtestRunId} has no dataset_version_id.`);
+    // route requires a datasetVersionId for those. The run row already
+    // exists, though, so — unlike the not-found case above — leaving it
+    // un-terminal here would mean a live viewer sees it hang forever;
+    // treat it like every other validation failure below.
+    await markFailed(db, run.id, organisationId, "MISSING_DATASET_VERSION_ID");
+    return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "MISSING_DATASET_VERSION_ID" };
   }
 
   await db.update(backtestRuns).set({ status: "RUNNING", startedAt: new Date() }).where(eq(backtestRuns.id, run.id));
@@ -273,12 +342,12 @@ export async function handleLocalRunnerExecution(
     .where(eq(strategyDefinitions.strategyVersionId, run.strategyVersionId))
     .limit(1);
   if (!definitionRow) {
-    await markFailed(db, run.id, "MISSING_STRATEGY_DEFINITION");
+    await markFailed(db, run.id, organisationId, "MISSING_STRATEGY_DEFINITION");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "MISSING_STRATEGY_DEFINITION" };
   }
   const definitionResult = StrategyDefinition.safeParse(definitionRow.definition);
   if (!definitionResult.success) {
-    await markFailed(db, run.id, "INVALID_STRATEGY_DEFINITION");
+    await markFailed(db, run.id, organisationId, "INVALID_STRATEGY_DEFINITION");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "INVALID_STRATEGY_DEFINITION" };
   }
   const definition = definitionResult.data;
@@ -289,7 +358,7 @@ export async function handleLocalRunnerExecution(
     .where(eq(datasetVersions.id, run.datasetVersionId))
     .limit(1);
   if (!dataset) {
-    await markFailed(db, run.id, "MISSING_DATASET_VERSION");
+    await markFailed(db, run.id, organisationId, "MISSING_DATASET_VERSION");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "MISSING_DATASET_VERSION" };
   }
 
@@ -299,14 +368,14 @@ export async function handleLocalRunnerExecution(
     .where(eq(artefacts.id, dataset.artefactId))
     .limit(1);
   if (!artefact) {
-    await markFailed(db, run.id, "MISSING_DATASET_ARTEFACT");
+    await markFailed(db, run.id, organisationId, "MISSING_DATASET_ARTEFACT");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "MISSING_DATASET_ARTEFACT" };
   }
 
   const csv = await fetchObjectText(deps.s3, deps.bucket, artefact.objectKey);
   const parsed = parseOhlcvCsv(csv);
   if (!parsed.ok) {
-    await markFailed(db, run.id, "DATASET_PARSE_FAILED");
+    await markFailed(db, run.id, organisationId, "DATASET_PARSE_FAILED");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "DATASET_PARSE_FAILED" };
   }
 
@@ -324,7 +393,7 @@ export async function handleLocalRunnerExecution(
   const segmentKindResult = BacktestSegmentKind.safeParse(run.segmentKind);
   if (!costModelResult.success || !segmentKindResult.success) {
     const errorCode = !costModelResult.success ? "INVALID_COST_MODEL" : "INVALID_SEGMENT_KIND";
-    await markFailed(db, run.id, errorCode);
+    await markFailed(db, run.id, organisationId, errorCode);
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode };
   }
 
@@ -343,13 +412,13 @@ export async function handleLocalRunnerExecution(
   const runner = createLocalPineRunner();
   const compileResult = await runner.compile({ definition });
   if (!compileResult.ok) {
-    await markFailed(db, run.id, "COMPILE_FAILED");
+    await markFailed(db, run.id, organisationId, "COMPILE_FAILED");
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "COMPILE_FAILED" };
   }
 
   const result = await runner.run({ runId: run.id, definition, plan, bars });
   if (!result.ok) {
-    await markFailed(db, run.id, result.errorCode);
+    await markFailed(db, run.id, organisationId, result.errorCode);
     return { status: "FAILED_TERMINAL", tradeCount: 0, errorCode: result.errorCode };
   }
 
@@ -375,8 +444,25 @@ export async function handleLocalRunnerExecution(
       aggregateId: run.id,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId,
       actor: "worker-backtest",
       payload: { backtestRunId: run.id, initialCapital: run.initialCapital },
+      createdAt: now,
+    });
+
+    // SSE-only notification (no downstream queue consumer) — a live viewer
+    // on the backtest-run page refetches on receiving this rather than the
+    // event carrying computed state itself (ADR 0007).
+    await tx.insert(outboxEvents).values({
+      id: generateId<string>(),
+      eventType: "backtest_run.completed",
+      eventVersion: "1.0.0",
+      aggregateId: run.id,
+      aggregateVersion: now.getTime().toString(),
+      correlationId: generateId<string>(),
+      organisationId,
+      actor: "worker-backtest",
+      payload: { backtestRunId: run.id, status: "SUCCEEDED" },
       createdAt: now,
     });
   });

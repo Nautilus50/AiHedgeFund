@@ -183,6 +183,7 @@ export class DrizzleWorkflowRepository implements WorkflowRepository {
         aggregateId: command.strategyVersionId,
         aggregateVersion: createdAt.getTime().toString(),
         correlationId: generateId<string>(),
+        organisationId: strategyRow.organisationId,
         actor: command.actorId,
         // ReadModelRefreshJob's exact shape, plus from/to/policyVersion as
         // informational extras a consumer strict on that schema will simply

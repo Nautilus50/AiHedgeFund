@@ -71,6 +71,13 @@
       "when": 1786640600787,
       "tag": "0009_mature_sunspot",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786657867497,
+      "tag": "0010_sharp_runaways",
+      "breakpoints": true
     }
   ]
 }

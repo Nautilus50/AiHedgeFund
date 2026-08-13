@@ -228,6 +228,23 @@ describe.skipIf(!available)("local runner execution (integration)", () => {
     );
   });
 
+  it("emits backtest_run.completed for SSE, scoped to the run's real organisation, alongside trades.normalised", async () => {
+    const seeded = await seed();
+    await handleLocalRunnerExecution(db, { s3, bucket }, { backtestRunId: seeded.backtestRunId });
+
+    const [event] = await db
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.eventType, "backtest_run.completed"));
+    if (event === undefined) throw new Error("expected a backtest_run.completed outbox event");
+
+    expect(event.aggregateId).toBe(seeded.backtestRunId);
+    expect(event.organisationId).toBe(seeded.organisationId);
+    expect(event.payload).toEqual({ backtestRunId: seeded.backtestRunId, status: "SUCCEEDED" });
+    // No downstream queue consumer — this event exists only for SSE visibility.
+    expect(routeOutboxEvent({ ...event, payload: event.payload as Record<string, unknown> })).toBeUndefined();
+  });
+
   it("marks the run FAILED_TERMINAL, with no trade ledger, for an unsupported SDL feature", async () => {
     const org = await seedOrganisation(db);
     const strategy = await seedStrategyVersion(db, org, { workflowState: "PINE_DEVELOPMENT" });
@@ -295,6 +312,54 @@ describe.skipIf(!available)("local runner execution (integration)", () => {
 
     const ledger = await db.select().from(trades).where(eq(trades.backtestRunId, backtestRunId));
     expect(ledger).toHaveLength(0);
+
+    // markFailed's status update and its backtest_run.completed event are
+    // one transaction (ADR 0007) — a live viewer must never see one without
+    // the other.
+    const [event] = await db
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.eventType, "backtest_run.completed"));
+    if (event === undefined) throw new Error("expected a backtest_run.completed outbox event");
+    expect(event.aggregateId).toBe(backtestRunId);
+    expect(event.organisationId).toBe(org.organisationId);
+    expect(event.payload).toEqual({ backtestRunId, status: "FAILED_TERMINAL", errorCode: "COMPILE_FAILED" });
+  });
+
+  it("marks the run FAILED_TERMINAL and still emits backtest_run.completed when datasetVersionId is missing", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PINE_DEVELOPMENT" });
+
+    const backtestRunId = generateId<string>();
+    await db.insert(backtestRuns).values({
+      id: backtestRunId,
+      strategyVersionId: strategy.strategyVersionId,
+      runnerType: "LOCAL_RUNNER",
+      runnerVersion: "local-1",
+      datasetVersionId: null,
+      symbol: "BTCUSD",
+      timeframe: "1h",
+      segmentKind: "IN_SAMPLE",
+      fromTs: new Date("2024-01-01T00:00:00Z"),
+      toTs: new Date("2024-01-01T14:00:00Z"),
+      costModel: { commissionType: "percent", commissionValue: 0.1, slippageTicks: 0 },
+      initialCapital: "11000",
+      sourceHash: "hash",
+    });
+
+    const result = await handleLocalRunnerExecution(db, { s3, bucket }, { backtestRunId });
+    expect(result).toEqual({ status: "FAILED_TERMINAL", tradeCount: 0, errorCode: "MISSING_DATASET_VERSION_ID" });
+
+    const [run] = await db.select().from(backtestRuns).where(eq(backtestRuns.id, backtestRunId));
+    // Previously this path `throw`n instead of reaching a terminal status —
+    // a live SSE viewer would have seen the run hang forever at QUEUED.
+    expect(run?.status).toBe("FAILED_TERMINAL");
+
+    const [event] = await db
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.eventType, "backtest_run.completed"));
+    expect(event?.payload).toEqual({ backtestRunId, status: "FAILED_TERMINAL", errorCode: "MISSING_DATASET_VERSION_ID" });
   });
 
   it("replaces rather than duplicates the ledger when replayed", async () => {

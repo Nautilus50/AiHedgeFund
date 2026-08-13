@@ -85,6 +85,7 @@ describe.skipIf(!available)("backtest run creation — dataset ownership (integr
     const datasetVersionId = await seedDataset(org.organisationId);
 
     const { backtestRunId } = await createBacktestRun(db, {
+      organisationId: org.organisationId,
       strategyVersionId: strategy.strategyVersionId,
       runnerType: "LOCAL_RUNNER",
       runnerVersion: "local-1",
@@ -119,6 +120,7 @@ describe.skipIf(!available)("backtest run creation — dataset ownership (integr
     const strategy = await seedStrategyVersion(db, org, { workflowState: "TRADINGVIEW_VERIFICATION" });
 
     await createBacktestRun(db, {
+      organisationId: org.organisationId,
       strategyVersionId: strategy.strategyVersionId,
       runnerType: "TRADINGVIEW",
       runnerVersion: "tv-1",

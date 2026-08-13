@@ -2,11 +2,12 @@ import { randomBytes } from "node:crypto";
 import { sha256Hex } from "@arf-os/contracts";
 
 /**
- * Generates a high-entropy, URL-safe deployment webhook token
- * (CLAUDE.md 16.1). Only its hash is ever persisted (see `hashToken`) — the
+ * Generates a high-entropy, URL-safe opaque token. Used for the
+ * forward-deployment webhook token (CLAUDE.md 16.1) and the SSE ticket
+ * (ADR 0007) — both cases persist only its hash (see `hashToken`); the
  * plaintext is returned once, at creation, and never logged or stored.
  */
-export function generateDeploymentToken(): string {
+export function generateOpaqueToken(): string {
   return randomBytes(32).toString("base64url");
 }
 

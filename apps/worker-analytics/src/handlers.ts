@@ -26,6 +26,27 @@ import {
 } from "@arf-os/metrics";
 import { extractReportedParityMetrics, type PerformanceSummaryMetric } from "@arf-os/pine";
 
+/**
+ * A `backtest_runs` row doesn't carry its own organisation — only
+ * `strategies` does. Every outbox event this file emits needs one (SSE
+ * streams filter and resume by it), so this is resolved once wherever a run
+ * id is available.
+ */
+async function resolveOrganisationId(db: Database, backtestRunId: string): Promise<string> {
+  const [row] = await db
+    .select({ organisationId: strategies.organisationId })
+    .from(backtestRuns)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, backtestRuns.strategyVersionId))
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(backtestRuns.id, backtestRunId))
+    .limit(1);
+
+  if (!row) {
+    throw new Error(`Cannot resolve organisationId for backtest run ${backtestRunId}.`);
+  }
+  return row.organisationId;
+}
+
 /** Loads a run's trade ledger in deterministic order and maps it into the metrics package's shape. */
 async function loadTrades(db: Database, backtestRunId: string): Promise<MetricsTrade[]> {
   const rows = await db
@@ -62,6 +83,7 @@ export async function handleEquityReconstruction(
   const ledger = await loadTrades(db, input.backtestRunId);
   const curve = reconstructEquityCurve(ledger, input.initialCapital);
   const drawdown = computeDrawdownCurve(curve);
+  const organisationId = await resolveOrganisationId(db, input.backtestRunId);
 
   await db.transaction(async (tx) => {
     await tx.delete(equityPoints).where(eq(equityPoints.backtestRunId, input.backtestRunId));
@@ -107,6 +129,7 @@ export async function handleEquityReconstruction(
       aggregateId: input.backtestRunId,
       aggregateVersion: now.getTime().toString(),
       correlationId: generateId<string>(),
+      organisationId,
       actor: "worker-analytics",
       // MetricCalculationJob needs only the run id; the relay passes this
       // payload through untouched.
@@ -149,6 +172,7 @@ export async function handleMetricCalculation(
 ): Promise<{ metricCount: number; parityQueued: boolean }> {
   const ledger = await loadTrades(db, input.backtestRunId);
   const metrics = calculateCoreMetrics(ledger);
+  const organisationId = await resolveOrganisationId(db, input.backtestRunId);
 
   // Parity compares against a TradingView verification, so a run with no
   // verification has nothing to compare to. Emitting the event anyway would
@@ -217,6 +241,7 @@ export async function handleMetricCalculation(
         aggregateId: input.backtestRunId,
         aggregateVersion: now.getTime().toString(),
         correlationId: generateId<string>(),
+        organisationId,
         actor: "worker-analytics",
         payload: { backtestRunId: input.backtestRunId, verificationId },
         createdAt: now,

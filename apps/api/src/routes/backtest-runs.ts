@@ -138,6 +138,7 @@ export function registerBacktestRunRoutes(app: FastifyInstance, deps: BacktestRu
     }
 
     const result = await createBacktestRun(deps.db, {
+      organisationId: auth.organisationId,
       strategyVersionId: parsed.data.strategyVersionId,
       runnerType: parsed.data.runnerType,
       runnerVersion: parsed.data.runnerVersion,

@@ -3,9 +3,10 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { createDatabase } from "@arf-os/db";
-import { redactWebhookToken } from "./lib/log-redaction.js";
+import { redactSseTicket, redactWebhookToken } from "./lib/log-redaction.js";
 import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
+import { SseHub } from "./lib/sse-hub.js";
 import { createObjectStoreClient } from "./services/object-store.js";
 import { registerRoutes } from "./routes/index.js";
 
@@ -32,7 +33,7 @@ async function buildServer() {
         req(request) {
           return {
             method: request.method,
-            url: redactWebhookToken(request.url),
+            url: redactSseTicket(redactWebhookToken(request.url)),
             hostname: request.hostname,
             remoteAddress: request.ip,
             remotePort: request.socket?.remotePort ?? 0,
@@ -77,6 +78,15 @@ async function buildServer() {
     region: process.env.OBJECT_STORE_REGION,
   });
 
+  // One shared poller per process, not one per open SSE connection — the
+  // Postgres pool is capped at 10 and shared with every ordinary request
+  // (ADR 0007).
+  const sseHub = new SseHub(db);
+  await sseHub.start();
+  app.addHook("onClose", () => {
+    sseHub.stop();
+  });
+
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error.name === "UnauthorizedError") {
       reply.code(401).send({
@@ -112,7 +122,7 @@ async function buildServer() {
     return { userId: auth.userId, organisationId: auth.organisationId, role: auth.role };
   });
 
-  registerRoutes(app, { db, s3, bucket });
+  registerRoutes(app, { db, s3, bucket, sseHub });
 
   return app;
 }
