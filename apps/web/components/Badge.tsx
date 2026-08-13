@@ -78,6 +78,29 @@ const PARITY_TONE: Record<string, BadgeTone> = {
   INSUFFICIENT_DATA: "neutral",
 };
 
+const FORWARD_DEPLOYMENT_TONE: Record<string, BadgeTone> = {
+  PLANNED: "neutral",
+  ACTIVE: "ok",
+  PAUSED: "warn",
+  COMPLETED: "info",
+  FAILED: "danger",
+  CANCELLED: "neutral",
+};
+
+const HEALTH_TONE: Record<string, BadgeTone> = {
+  HEALTHY: "ok",
+  DEGRADED: "warn",
+  OK: "ok",
+  DRAWDOWN_ALERT: "danger",
+  NOT_CONFIGURED: "neutral",
+};
+
+const SIGNAL_PROCESSING_TONE: Record<string, BadgeTone> = {
+  PENDING: "neutral",
+  PROCESSED: "ok",
+  REJECTED: "danger",
+};
+
 export function humanise(state: string): string {
   return state.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
@@ -87,7 +110,16 @@ export function StateBadge({
   kind = "workflow",
 }: {
   state: string;
-  kind?: "workflow" | "campaign" | "parse" | "verification" | "runStatus" | "parity";
+  kind?:
+    | "workflow"
+    | "campaign"
+    | "parse"
+    | "verification"
+    | "runStatus"
+    | "parity"
+    | "forwardDeployment"
+    | "health"
+    | "signalProcessing";
 }) {
   const map =
     kind === "campaign"
@@ -100,7 +132,13 @@ export function StateBadge({
             ? RUN_STATUS_TONE
             : kind === "parity"
               ? PARITY_TONE
-              : WORKFLOW_TONE;
+              : kind === "forwardDeployment"
+                ? FORWARD_DEPLOYMENT_TONE
+                : kind === "health"
+                  ? HEALTH_TONE
+                  : kind === "signalProcessing"
+                    ? SIGNAL_PROCESSING_TONE
+                    : WORKFLOW_TONE;
 
   return <Badge tone={map[state] ?? "neutral"}>{humanise(state)}</Badge>;
 }

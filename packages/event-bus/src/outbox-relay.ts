@@ -69,6 +69,12 @@ export function routeOutboxEvent(row: OutboxRow): RoutedJob | undefined {
         jobId: deterministicJobId(QUEUE_NAMES.readModelRefresh, row.id),
         data: row.payload,
       };
+    case "forward_signal.received":
+      return {
+        queue: QUEUE_NAMES.forwardSignalProcessing,
+        jobId: deterministicJobId(QUEUE_NAMES.forwardSignalProcessing, row.id),
+        data: row.payload,
+      };
     default:
       return undefined;
   }

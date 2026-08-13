@@ -54,7 +54,10 @@ export interface SeededStrategy {
 export async function seedStrategyVersion(
   db: Database,
   seed: SeededOrganisation,
-  options: { workflowState?: "PINE_DEVELOPMENT" | "TRADINGVIEW_VERIFICATION" | "PAPER_APPROVAL_REVIEW"; createdByAgentRunId?: string } = {},
+  options: {
+    workflowState?: "PINE_DEVELOPMENT" | "TRADINGVIEW_VERIFICATION" | "PAPER_APPROVAL_REVIEW" | "PAPER_APPROVED";
+    createdByAgentRunId?: string;
+  } = {},
 ): Promise<SeededStrategy> {
   const strategyId = generateId<string>();
   const strategyVersionId = generateId<string>();

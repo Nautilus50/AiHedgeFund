@@ -129,6 +129,8 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0004_glamorous_wind_dancer` | `report_uploads.parsed_trades` |
 | `0005_needy_scarlet_spider` | `dataset_versions` table; `backtest_runs.dataset_version_id` |
 | `0006_legal_wither` | `dataset_versions.created_at` narrowed to millisecond precision — fixes a cursor-pagination bug where the boundary row duplicated onto the next page (Postgres's default microsecond precision doesn't round-trip through a JS `Date`) |
+| `0007_empty_proteus` | `strategy_read_models` table |
+| `0008_closed_trish_tilby` | Forward-test tables: `forward_deployments`, `signal_events`, `paper_orders`, `paper_fills`, `forward_equity_points`, `forward_drawdown_points` |
 
 ## Indexes
 

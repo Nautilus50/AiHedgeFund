@@ -77,6 +77,7 @@ state, end to end:
 | `metrics.calculated` → `parity-calculation` | `worker-analytics` | `worker-analytics` |
 | `strategy_version.transitioned` → `read-model-refresh` | `workflow` | `worker-analytics` |
 | `committee_decision.created` → `read-model-refresh` | `api` | `worker-analytics` |
+| `forward_signal.received` → `forward-signal-processing` | `api` | `worker-forward` |
 
 The ingestion chain runs end to end: completing an upload durably stores the
 raw artefact and hands off parsing to its own job, which — for a List of
@@ -161,10 +162,9 @@ chain rather than the request body.
 
 ## What is not built
 
-- `apps/worker-forward` — health endpoint only; no paper engine or webhook
-- `backtest-sdk` — no local Pine runner
-- Parity report persistence — comparison logic exists and is tested, but is
-  not yet written to `parity_reports` by a worker
+- Forward-test drift reports, a persisted health-snapshot time series, and
+  live market-data-based price comparison — see ADR 0006's Alternatives for
+  why each is deferred rather than half-built
 - Agent orchestration beyond the single IDEA_SCOUT fixture path
 - SSE, practice arena, portfolio research
 - Most of spec 14.12's read models (Campaign command centre, Agent

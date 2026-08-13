@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { createDatabase } from "@arf-os/db";
+import { redactWebhookToken } from "./lib/log-redaction.js";
 import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
 import { createObjectStoreClient } from "./services/object-store.js";
@@ -25,7 +26,21 @@ function requireEnv(name: string): string {
 }
 
 async function buildServer() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: {
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: redactWebhookToken(request.url),
+            hostname: request.hostname,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort ?? 0,
+          };
+        },
+      },
+    },
+  });
 
   await app.register(cors, { origin: true });
   await app.register(sensible);

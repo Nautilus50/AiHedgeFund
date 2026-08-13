@@ -5,6 +5,7 @@ import { registerBacktestRunRoutes } from "./backtest-runs.js";
 import { registerCampaignRoutes } from "./campaigns.js";
 import { registerDashboardRoutes } from "./dashboard.js";
 import { registerDatasetRoutes } from "./datasets.js";
+import { registerForwardRoutes } from "./forward.js";
 import { registerStrategyRoutes } from "./strategies.js";
 import { registerVerificationRoutes } from "./verifications.js";
 
@@ -19,6 +20,7 @@ export function registerRoutes(app: FastifyInstance, deps: ApiDeps): void {
   registerCampaignRoutes(app, { db: deps.db });
   registerDashboardRoutes(app, { db: deps.db });
   registerDatasetRoutes(app, { db: deps.db });
+  registerForwardRoutes(app, { db: deps.db });
   registerStrategyRoutes(app, { db: deps.db });
   registerVerificationRoutes(app, { db: deps.db, s3: deps.s3, bucket: deps.bucket });
 }

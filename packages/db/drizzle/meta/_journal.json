@@ -57,6 +57,13 @@
       "when": 1786588158242,
       "tag": "0007_empty_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786637141596,
+      "tag": "0008_closed_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

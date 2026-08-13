@@ -222,12 +222,24 @@ importers:
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@arf-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@arf-os/event-bus':
         specifier: workspace:*
         version: link:../../packages/event-bus
+      '@arf-os/metrics':
+        specifier: workspace:*
+        version: link:../../packages/metrics
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      bullmq:
+        specifier: ^5.34.1
+        version: 5.81.3
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
       fastify:
         specifier: ^5.1.0
         version: 5.11.2

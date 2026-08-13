@@ -99,6 +99,20 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
         </Alert>
       )}
 
+      {version.workflowState === "PAPER_APPROVED" && (
+        <Card>
+          <CardHead
+            title="Forward testing"
+            hint="Run this approved version against real TradingView alerts with deterministic paper fills (CLAUDE.md 16)."
+            actions={
+              <Link href={`/strategy-versions/${id}/forward-deployments/new`} className="btn btn-primary">
+                New forward deployment
+              </Link>
+            }
+          />
+        </Card>
+      )}
+
       <Card>
         <CardHead title="Artefact identity" hint="Content hashes are what make a result reproducible." />
         <CardBody>

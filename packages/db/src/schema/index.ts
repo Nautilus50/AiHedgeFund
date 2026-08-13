@@ -5,6 +5,7 @@ export * from "./artefacts.js";
 export * from "./verification.js";
 export * from "./datasets.js";
 export * from "./backtest.js";
+export * from "./forward.js";
 export * from "./governance.js";
 export * from "./read-models.js";
 export * from "./system.js";

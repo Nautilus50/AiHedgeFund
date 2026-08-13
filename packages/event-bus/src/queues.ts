@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   readModelRefresh: "read-model-refresh",
   agentRun: "agent-run",
   localRunnerExecution: "local-runner-execution",
+  forwardSignalProcessing: "forward-signal-processing",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -59,6 +60,12 @@ export const LocalRunnerExecutionJob = z.object({
   backtestRunId: z.string().uuid(),
 });
 export type LocalRunnerExecutionJob = z.infer<typeof LocalRunnerExecutionJob>;
+
+export const ForwardSignalProcessingJob = z.object({
+  deploymentId: z.string().uuid(),
+  signalEventId: z.string().uuid(),
+});
+export type ForwardSignalProcessingJob = z.infer<typeof ForwardSignalProcessingJob>;
 
 export const AgentRunJob = z.object({
   campaignId: z.string().uuid(),

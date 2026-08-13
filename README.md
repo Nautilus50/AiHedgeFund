@@ -458,6 +458,8 @@ built and how to run it.
 | [0002](./docs/adr/0002-object-storage.md) | S3-compatible storage with presigned uploads |
 | [0003](./docs/adr/0003-workflow-engine.md) | A first-party state machine, not a framework |
 | [0004](./docs/adr/0004-tradingview-verification.md) | Human-assisted verification, not browser automation |
+| [0005](./docs/adr/0005-local-pine-runner.md) | Local runner executes SDL signal expressions directly, not generated Pine source |
+| [0006](./docs/adr/0006-forward-test-paper-engine.md) | Forward-test paper engine — first vertical slice, honest scope cuts |
 
 ### Quick start
 
@@ -523,7 +525,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Strategy Library read model | Built. `strategy_read_models` is denormalised per strategy (spec 14.12), refreshed asynchronously off `strategy_version.transitioned` and `committee_decision.created` — always recomputed from the canonical tables from scratch rather than patched incrementally, so a replay or an out-of-order event still converges on the true current state. Not yet read from any API/UI (`listStrategies` still queries live) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
-| Forward-test paper engine | Not started |
+| Forward-test paper engine | First vertical slice built — token-authenticated TradingView webhook ingestion, async signal processing into deterministic paper fills (one open position at a time, no pyramiding), real equity/drawdown/metrics reusing the existing `@arf-os/metrics` functions unchanged, a two-axis live health endpoint (infrastructure vs strategy performance, CLAUDE.md 16.3), and a minimal frontend (create form with a one-time token reveal, deployment detail page). See [ADR 0006](docs/adr/0006-forward-test-paper-engine.md) for scope and honest gaps — no drift reports, no stored health snapshots, no live price feed, SSE deliberately deferred |
 | Validation lab, practice arena, portfolio research | Not started |
 | Live execution | Intentionally out of scope |
 
@@ -533,7 +535,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 213 unit tests, 103 integration tests, 3 end-to-end tests
+- 234 unit tests, 120 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched

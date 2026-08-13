@@ -11,3 +11,4 @@ export * from "./backtest.js";
 export * from "./metrics.js";
 export * from "./decision.js";
 export * from "./event.js";
+export * from "./forward.js";
