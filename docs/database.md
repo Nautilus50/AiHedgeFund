@@ -132,12 +132,24 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0007_empty_proteus` | `strategy_read_models` table |
 | `0008_closed_trish_tilby` | Forward-test tables: `forward_deployments`, `signal_events`, `paper_orders`, `paper_fills`, `forward_equity_points`, `forward_drawdown_points` |
 | `0009_mature_sunspot` | `campaigns.created_at`, `strategies.created_at`, `backtest_runs.created_at` narrowed to millisecond precision — same cursor-pagination bug as `0006`, found on every other cursor-paginated listing endpoint (`listCampaigns`, `listStrategies`, `listBacktestRuns`) once audited for it |
+| `0010_sharp_runaways` | `outbox_events.organisation_id` (NOT NULL, backfilled) + composite index; `sse_tickets` table — see [ADR 0007](adr/0007-server-sent-events.md) |
+| `0011_skinny_jetstream` | Nine indexes for query patterns actually exercised by this codebase's own services — see Indexes below |
 
 ## Indexes
 
-None beyond primary keys and unique constraints have been added yet.
-CLAUDE.md 9.2 says to index real query patterns rather than speculation — the
-patterns worth indexing (organisation-scoped listings ordered by
-`created_at, id`; outbox claims filtered on `status`) are known but have not
-been measured under load. This is deliberate, and is listed under Known
-limitations in the README.
+Added once real query patterns existed to index, not speculatively
+(CLAUDE.md 9.2). Each backs a specific query, not a guess:
+
+| Index | Backs |
+|---|---|
+| `outbox_events_status_created_at_idx` | The relay's `claimPending`/`reclaimStale` queries (`WHERE status = ... ORDER BY created_at`) — runs on every relay poll, continuously |
+| `outbox_events_organisation_id_id_idx` | `SseHub`'s catch-up/live-fan-out reads (ADR 0007) |
+| `campaigns_organisation_id_created_at_id_idx` | `listCampaigns`' cursor pagination |
+| `strategies_organisation_id_created_at_id_idx` | `listStrategies`' cursor pagination |
+| `strategies_campaign_id_idx` | `getCampaignSummary`, `listCampaignAuditEvents`, and the Campaign Detail strategies table |
+| `strategy_versions_strategy_id_version_number_idx` | The "latest version per strategy" `LATERAL` join, the single most repeated query shape in this codebase (`getDashboardKpis`, `getCampaignSummary`, `listStrategies`' filters, `handleReadModelRefresh`) |
+| `dataset_versions_organisation_id_created_at_id_idx` | `listDatasetVersions`' cursor pagination |
+| `backtest_runs_strategy_version_id_created_at_id_idx` | `listBacktestRuns`' cursor pagination, scoped to one strategy version |
+| `committee_decisions_strategy_version_id_idx` | `listRecentDecisions`, parity's reported-metrics lookup, the read-model refresh |
+| `audit_events_aggregate_type_aggregate_id_created_at_idx` | `listCampaignAuditEvents` and any per-aggregate audit lookup |
+| `strategy_read_models_organisation_id_workflow_state_idx` | `listCommitteeQueue`'s `WHERE organisation_id = ... AND workflow_state = 'PAPER_APPROVAL_REVIEW'` |

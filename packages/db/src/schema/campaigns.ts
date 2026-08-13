@@ -1,4 +1,4 @@
-import { jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { organisations, users } from "./identity.js";
 
 export const campaignStatusEnum = pgEnum("campaign_status", [
@@ -9,28 +9,33 @@ export const campaignStatusEnum = pgEnum("campaign_status", [
   "COMPLETED",
 ]);
 
-export const campaigns = pgTable("campaigns", {
-  id: uuid("id").primaryKey(),
-  organisationId: uuid("organisation_id")
-    .notNull()
-    .references(() => organisations.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  brief: text("brief").notNull(),
-  allowedMarkets: jsonb("allowed_markets").notNull(),
-  status: campaignStatusEnum("status").notNull().default("DRAFT"),
-  createdByUserId: uuid("created_by_user_id")
-    .notNull()
-    .references(() => users.id),
-  // precision: 3 (milliseconds) is deliberate, not decorative: listCampaigns'
-  // cursor pagination round-trips this column through a JS `Date`, which
-  // cannot represent Postgres's default microsecond precision. Without
-  // capping the column at the same precision the cursor can hold,
-  // `gt(createdAt, cursorDate)` is spuriously true for the cursor row's own
-  // record, duplicating it onto the next page (same bug/fix as
-  // dataset_versions.created_at in datasets.ts).
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const campaigns = pgTable(
+  "campaigns",
+  {
+    id: uuid("id").primaryKey(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    brief: text("brief").notNull(),
+    allowedMarkets: jsonb("allowed_markets").notNull(),
+    status: campaignStatusEnum("status").notNull().default("DRAFT"),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    // precision: 3 (milliseconds) is deliberate, not decorative: listCampaigns'
+    // cursor pagination round-trips this column through a JS `Date`, which
+    // cannot represent Postgres's default microsecond precision. Without
+    // capping the column at the same precision the cursor can hold,
+    // `gt(createdAt, cursorDate)` is spuriously true for the cursor row's own
+    // record, duplicating it onto the next page (same bug/fix as
+    // dataset_versions.created_at in datasets.ts).
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // listCampaigns' cursor-paginated WHERE organisation_id = $1 [AND (created_at, id) > cursor] ORDER BY created_at, id.
+  (table) => [index("campaigns_organisation_id_created_at_id_idx").on(table.organisationId, table.createdAt, table.id)],
+);
 
 export const researchTaskStatusEnum = pgEnum("research_task_status", [
   "QUEUED",

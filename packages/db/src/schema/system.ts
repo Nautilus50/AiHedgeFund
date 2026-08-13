@@ -38,7 +38,13 @@ export const outboxEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
   },
-  (table) => [index("outbox_events_organisation_id_id_idx").on(table.organisationId, table.id)],
+  (table) => [
+    index("outbox_events_organisation_id_id_idx").on(table.organisationId, table.id),
+    // The relay's claimPending/reclaimStale queries (DrizzleOutboxStore)
+    // both filter on status and order by created_at — this runs on every
+    // relay poll, continuously, not an occasional read.
+    index("outbox_events_status_created_at_idx").on(table.status, table.createdAt),
+  ],
 );
 
 /**

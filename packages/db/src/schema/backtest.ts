@@ -1,4 +1,4 @@
-import { integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { datasetVersions } from "./datasets.js";
 import { strategyVersions } from "./strategy.js";
 import { tradingviewVerifications } from "./verification.js";
@@ -14,36 +14,41 @@ export const backtestRunStatusEnum = pgEnum("backtest_run_status", [
 
 export const backtestRunnerTypeEnum = pgEnum("backtest_runner_type", ["LOCAL_RUNNER", "TRADINGVIEW"]);
 
-export const backtestRuns = pgTable("backtest_runs", {
-  id: uuid("id").primaryKey(),
-  strategyVersionId: uuid("strategy_version_id")
-    .notNull()
-    .references(() => strategyVersions.id, { onDelete: "cascade" }),
-  runnerType: backtestRunnerTypeEnum("runner_type").notNull(),
-  runnerVersion: text("runner_version").notNull(),
-  verificationId: uuid("verification_id").references(() => tradingviewVerifications.id),
-  // Required only for LOCAL_RUNNER runs (enforced at the API layer, not the
-  // DB — a TRADINGVIEW run has no local dataset to point at).
-  datasetVersionId: uuid("dataset_version_id").references(() => datasetVersions.id),
-  symbol: text("symbol").notNull(),
-  timeframe: text("timeframe").notNull(),
-  segmentKind: text("segment_kind").notNull(),
-  fromTs: timestamp("from_ts", { withTimezone: true }).notNull(),
-  toTs: timestamp("to_ts", { withTimezone: true }).notNull(),
-  costModel: jsonb("cost_model").notNull(),
-  initialCapital: numeric("initial_capital", { precision: 20, scale: 8 }).notNull(),
-  status: backtestRunStatusEnum("status").notNull().default("QUEUED"),
-  sourceHash: text("source_hash").notNull(),
-  environmentHash: text("environment_hash"),
-  errorCode: text("error_code"),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  // precision: 3 — listBacktestRuns' cursor pagination round-trips this
-  // column through a JS `Date` (millisecond precision); without capping the
-  // column to match, the cursor row spuriously re-matches itself on the
-  // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
-});
+export const backtestRuns = pgTable(
+  "backtest_runs",
+  {
+    id: uuid("id").primaryKey(),
+    strategyVersionId: uuid("strategy_version_id")
+      .notNull()
+      .references(() => strategyVersions.id, { onDelete: "cascade" }),
+    runnerType: backtestRunnerTypeEnum("runner_type").notNull(),
+    runnerVersion: text("runner_version").notNull(),
+    verificationId: uuid("verification_id").references(() => tradingviewVerifications.id),
+    // Required only for LOCAL_RUNNER runs (enforced at the API layer, not the
+    // DB — a TRADINGVIEW run has no local dataset to point at).
+    datasetVersionId: uuid("dataset_version_id").references(() => datasetVersions.id),
+    symbol: text("symbol").notNull(),
+    timeframe: text("timeframe").notNull(),
+    segmentKind: text("segment_kind").notNull(),
+    fromTs: timestamp("from_ts", { withTimezone: true }).notNull(),
+    toTs: timestamp("to_ts", { withTimezone: true }).notNull(),
+    costModel: jsonb("cost_model").notNull(),
+    initialCapital: numeric("initial_capital", { precision: 20, scale: 8 }).notNull(),
+    status: backtestRunStatusEnum("status").notNull().default("QUEUED"),
+    sourceHash: text("source_hash").notNull(),
+    environmentHash: text("environment_hash"),
+    errorCode: text("error_code"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    // precision: 3 — listBacktestRuns' cursor pagination round-trips this
+    // column through a JS `Date` (millisecond precision); without capping the
+    // column to match, the cursor row spuriously re-matches itself on the
+    // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  },
+  // listBacktestRuns' cursor pagination: WHERE strategy_version_id = $1 ORDER BY created_at, id.
+  (table) => [index("backtest_runs_strategy_version_id_created_at_id_idx").on(table.strategyVersionId, table.createdAt, table.id)],
+);
 
 export const tradeDirectionEnum = pgEnum("trade_direction", ["LONG", "SHORT"]);
 

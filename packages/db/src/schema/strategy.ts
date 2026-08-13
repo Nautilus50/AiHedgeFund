@@ -1,4 +1,4 @@
-import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { organisations, users } from "./identity.js";
 import { campaigns } from "./campaigns.js";
 
@@ -15,42 +15,60 @@ export const workflowStateEnum = pgEnum("workflow_state", [
 ]);
 
 /** Conceptual lineage root. Has many immutable StrategyVersions (spec 14.5). */
-export const strategies = pgTable("strategies", {
-  id: uuid("id").primaryKey(),
-  organisationId: uuid("organisation_id")
-    .notNull()
-    .references(() => organisations.id, { onDelete: "cascade" }),
-  campaignId: uuid("campaign_id")
-    .notNull()
-    .references(() => campaigns.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  // precision: 3 — listStrategies' cursor pagination round-trips this
-  // column through a JS `Date` (millisecond precision); without capping the
-  // column to match, the cursor row spuriously re-matches itself on the
-  // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
-});
+export const strategies = pgTable(
+  "strategies",
+  {
+    id: uuid("id").primaryKey(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // precision: 3 — listStrategies' cursor pagination round-trips this
+    // column through a JS `Date` (millisecond precision); without capping the
+    // column to match, the cursor row spuriously re-matches itself on the
+    // next page (same bug/fix as dataset_versions.created_at in datasets.ts).
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  },
+  (table) => [
+    // listStrategies' cursor pagination: WHERE organisation_id = $1 ORDER BY created_at, id.
+    index("strategies_organisation_id_created_at_id_idx").on(table.organisationId, table.createdAt, table.id),
+    // getCampaignSummary/listCampaignAuditEvents/the strategies table on
+    // Campaign Detail all filter by campaign_id directly.
+    index("strategies_campaign_id_idx").on(table.campaignId),
+  ],
+);
 
 /**
  * Immutable strategy version (CLAUDE.md 3.1). Never mutate a tested row —
  * any material change creates a new version referencing this one as parent.
  */
-export const strategyVersions = pgTable("strategy_versions", {
-  id: uuid("id").primaryKey(),
-  strategyId: uuid("strategy_id")
-    .notNull()
-    .references(() => strategies.id, { onDelete: "cascade" }),
-  parentVersionId: uuid("parent_version_id"),
-  versionNumber: integer("version_number").notNull(),
-  workflowState: workflowStateEnum("workflow_state").notNull().default("CAMPAIGN_BACKLOG"),
-  definitionHash: text("definition_hash"),
-  pineSourceHash: text("pine_source_hash"),
-  manifestHash: text("manifest_hash"),
-  createdByAgentRunId: uuid("created_by_agent_run_id"),
-  changeReason: text("change_reason"),
-  contaminatedDatasetIds: jsonb("contaminated_dataset_ids").notNull().default([]),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const strategyVersions = pgTable(
+  "strategy_versions",
+  {
+    id: uuid("id").primaryKey(),
+    strategyId: uuid("strategy_id")
+      .notNull()
+      .references(() => strategies.id, { onDelete: "cascade" }),
+    parentVersionId: uuid("parent_version_id"),
+    versionNumber: integer("version_number").notNull(),
+    workflowState: workflowStateEnum("workflow_state").notNull().default("CAMPAIGN_BACKLOG"),
+    definitionHash: text("definition_hash"),
+    pineSourceHash: text("pine_source_hash"),
+    manifestHash: text("manifest_hash"),
+    createdByAgentRunId: uuid("created_by_agent_run_id"),
+    changeReason: text("change_reason"),
+    contaminatedDatasetIds: jsonb("contaminated_dataset_ids").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // The "latest version per strategy" LATERAL join (ORDER BY version_number
+  // DESC LIMIT 1) appears in getDashboardKpis, getCampaignSummary,
+  // listStrategies' filters, and handleReadModelRefresh — the single most
+  // repeated query shape in this codebase.
+  (table) => [index("strategy_versions_strategy_id_version_number_idx").on(table.strategyId, table.versionNumber)],
+);
 
 /** Explicit lineage edges, kept separate from parentVersionId for multi-parent/merge queries. */
 export const strategyLineage = pgTable("strategy_lineage", {
