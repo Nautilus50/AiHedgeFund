@@ -295,6 +295,7 @@ export function registerStrategyRoutes(app: FastifyInstance, deps: StrategyRoute
         deps.db,
         deps.workflow,
         { id: auth.userId, roles: [auth.role] },
+        auth.organisationId,
         idempotencyKey,
         fullInput,
       );

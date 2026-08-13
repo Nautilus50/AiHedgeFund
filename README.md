@@ -519,7 +519,8 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | API endpoints | Built (campaigns, strategies, verifications, backtest runs, dataset versions, dashboard KPIs, decisions, audit, trades/equity/drawdown/metrics/parity reads). Rate limited (`@fastify/rate-limit`): a 300 req/min default keyed by organisation (IP for anonymous callers), tightened to 20 req/min on upload-completion and committee-decision, the two costliest/most sensitive write paths — CLAUDE.md 19 |
 | Ingestion chain | Built — upload → report-parse → ledger → equity/drawdown → metrics → parity, each step its own async job driven by the outbox |
 | Frontend screens | Built — minimal, unstyled. Command Centre (with a KPI overview: campaign/strategy/backtest-run/dataset/parity counts and pipeline breakdowns, all real grouped SQL counts, org-scoped), Strategy Library (filterable by state/symbol/timeframe/parity, pushed down to real SQL), Campaign/Strategy/Backtest-run/Verification detail, Backtest Lab (launch a LOCAL_RUNNER run against a picked dataset). Equity/drawdown charts on the backtest-run page (two linked single-axis charts, never one dual-axis chart — spec 15.18); raw evidence tables remain available underneath, collapsed |
-| Workers and transactional outbox | Built (relay, analytics; research on a fixture provider) |
+| Workers and transactional outbox | Built (relay, analytics, read-model refresh; research on a fixture provider) |
+| Strategy Library read model | Built. `strategy_read_models` is denormalised per strategy (spec 14.12), refreshed asynchronously off `strategy_version.transitioned` and `committee_decision.created` — always recomputed from the canonical tables from scratch rather than patched incrementally, so a replay or an out-of-order event still converges on the true current state. Not yet read from any API/UI (`listStrategies` still queries live) |
 | Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | Not started |
@@ -532,7 +533,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 213 unit tests, 94 integration tests, 3 end-to-end tests
+- 213 unit tests, 102 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched

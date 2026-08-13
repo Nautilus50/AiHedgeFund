@@ -470,6 +470,9 @@ importers:
       '@arf-os/db':
         specifier: workspace:*
         version: link:../db
+      '@arf-os/event-bus':
+        specifier: workspace:^
+        version: link:../event-bus
       drizzle-orm:
         specifier: ^0.38.2
         version: 0.38.4(@opentelemetry/api@1.9.1)(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)

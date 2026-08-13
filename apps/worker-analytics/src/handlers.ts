@@ -1,14 +1,19 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { generateId, type MetricUnit, type ParityStatus } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
+import type { ReadModelRefreshJob } from "@arf-os/event-bus";
 import {
   backtestRuns,
+  committeeDecisions,
   drawdownPoints,
   equityPoints,
   metricSnapshots,
   outboxEvents,
   parityReports,
   reportUploads,
+  strategies,
+  strategyReadModels,
+  strategyVersions,
   trades,
 } from "@arf-os/db";
 import {
@@ -348,4 +353,101 @@ export async function handleParityCalculation(
   });
 
   return { status: report.status, firstDivergence: report.firstDivergence };
+}
+
+export interface ReadModelRefreshResult {
+  strategyId: string;
+  workflowState: string;
+  latestDecision: string | null;
+}
+
+/**
+ * Recomputes the Strategy Library read model for one strategy (spec 14.12).
+ * Both `strategy_version.transitioned` and `committee_decision.created`
+ * route here with `aggregateType: "strategy_version"` — the handler always
+ * re-derives the strategy's *current* latest version and latest decision
+ * from the canonical tables rather than applying the triggering event as a
+ * delta. That makes it safe to replay, and safe against an event for an
+ * older version arriving after a newer version has already transitioned:
+ * either way the row converges on the same true current state
+ * (idempotent by deletion-then-insert, matching the other analytics
+ * handlers).
+ */
+export async function handleReadModelRefresh(
+  db: Database,
+  input: ReadModelRefreshJob,
+): Promise<ReadModelRefreshResult> {
+  if (input.aggregateType !== "strategy_version") {
+    throw new Error(`Unrecognised read-model aggregateType "${input.aggregateType}"; expected "strategy_version".`);
+  }
+
+  const [triggeringVersion] = await db
+    .select({ strategyId: strategyVersions.strategyId })
+    .from(strategyVersions)
+    .where(eq(strategyVersions.id, input.aggregateId))
+    .limit(1);
+
+  if (!triggeringVersion) {
+    throw new Error(`Strategy version ${input.aggregateId} not found.`);
+  }
+
+  const [strategy] = await db
+    .select({ id: strategies.id, organisationId: strategies.organisationId, campaignId: strategies.campaignId, name: strategies.name })
+    .from(strategies)
+    .where(eq(strategies.id, triggeringVersion.strategyId))
+    .limit(1);
+
+  if (!strategy) {
+    throw new Error(`Strategy ${triggeringVersion.strategyId} not found.`);
+  }
+
+  const [latestVersion] = await db
+    .select({
+      id: strategyVersions.id,
+      versionNumber: strategyVersions.versionNumber,
+      workflowState: strategyVersions.workflowState,
+    })
+    .from(strategyVersions)
+    .where(eq(strategyVersions.strategyId, strategy.id))
+    .orderBy(desc(strategyVersions.versionNumber))
+    .limit(1);
+
+  if (!latestVersion) {
+    throw new Error(`Strategy ${strategy.id} has no versions.`);
+  }
+
+  const [latestDecision] = await db
+    .select({
+      decision: committeeDecisions.decision,
+      createdAt: committeeDecisions.createdAt,
+      actorId: committeeDecisions.actorId,
+    })
+    .from(committeeDecisions)
+    .innerJoin(strategyVersions, eq(strategyVersions.id, committeeDecisions.strategyVersionId))
+    .where(eq(strategyVersions.strategyId, strategy.id))
+    .orderBy(desc(committeeDecisions.createdAt))
+    .limit(1);
+
+  await db.transaction(async (tx) => {
+    await tx.delete(strategyReadModels).where(eq(strategyReadModels.strategyId, strategy.id));
+
+    await tx.insert(strategyReadModels).values({
+      strategyId: strategy.id,
+      organisationId: strategy.organisationId,
+      campaignId: strategy.campaignId,
+      name: strategy.name,
+      latestVersionId: latestVersion.id,
+      latestVersionNumber: latestVersion.versionNumber,
+      workflowState: latestVersion.workflowState,
+      latestDecision: latestDecision?.decision ?? null,
+      latestDecisionAt: latestDecision?.createdAt ?? null,
+      latestDecisionActorId: latestDecision?.actorId ?? null,
+    });
+  });
+
+  return {
+    strategyId: strategy.id,
+    workflowState: latestVersion.workflowState,
+    latestDecision: latestDecision?.decision ?? null,
+  };
 }

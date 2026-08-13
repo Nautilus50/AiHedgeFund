@@ -50,6 +50,13 @@
       "when": 1786553810148,
       "tag": "0006_legal_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786588158242,
+      "tag": "0007_empty_proteus",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
   type Database,
 } from "@arf-os/db";
 import { fingerprint, generateId } from "@arf-os/contracts";
+import { ReadModelRefreshJob } from "@arf-os/event-bus";
 import { createWorkflowService, type WorkflowService } from "../service.js";
 import { DrizzleWorkflowRepository } from "./drizzle-repository.js";
 
@@ -80,6 +81,14 @@ describe.skipIf(!available)("DrizzleWorkflowRepository (integration)", () => {
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.eventType).toBe("strategy_version.transitioned");
     expect(outbox[0]?.status).toBe("PENDING");
+    // The relay routes this event to read-model-refresh; its payload must
+    // satisfy that job's schema, not just carry from/to informationally.
+    expect(() => ReadModelRefreshJob.parse(outbox[0]?.payload)).not.toThrow();
+    expect(outbox[0]?.payload).toMatchObject({
+      organisationId: org.organisationId,
+      aggregateType: "strategy_version",
+      aggregateId: strategy.strategyVersionId,
+    });
   });
 
   it("keeps concurrent transitions sharing an idempotency key to a single applied transition", async () => {

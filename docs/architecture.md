@@ -70,17 +70,20 @@ state, end to end:
 
 | Link | Producer | Consumer |
 |---|---|---|
-| `report_upload.parsed` → `trade-normalisation` | `api` | `worker-backtest` |
+| `report_upload.uploaded` → `report-parse` | `api` | `worker-backtest` |
+| `report_upload.parsed` → `trade-normalisation` | `worker-backtest` | `worker-backtest` |
 | `trades.normalised` → `equity-reconstruction` | `worker-backtest` | `worker-analytics` |
 | `equity.reconstructed` → `metric-calculation` | `worker-analytics` | `worker-analytics` |
 | `metrics.calculated` → `parity-calculation` | `worker-analytics` | `worker-analytics` |
-| `strategy_version.transitioned` → `read-model-refresh` | `workflow` | **none** |
-| `committee_decision.created` → `read-model-refresh` | **none** | **none** |
+| `strategy_version.transitioned` → `read-model-refresh` | `workflow` | `worker-analytics` |
+| `committee_decision.created` → `read-model-refresh` | `api` | `worker-analytics` |
 
-The ingestion chain runs end to end: completing a List of Trades upload
-against a known run writes the ledger, which reconstructs equity and
-drawdown, which calculates metrics, which produces a parity verdict. Only
-the read-model refresh remains unconsumed.
+The ingestion chain runs end to end: completing an upload durably stores the
+raw artefact and hands off parsing to its own job, which — for a List of
+Trades against a known run — writes the ledger, which reconstructs equity
+and drawdown, which calculates metrics, which produces a parity verdict.
+Every link above has both a real producer and a real consumer; none is
+routed to a queue nobody drains.
 
 ### Starting the chain
 
@@ -163,4 +166,8 @@ chain rather than the request body.
 - Parity report persistence — comparison logic exists and is tested, but is
   not yet written to `parity_reports` by a worker
 - Agent orchestration beyond the single IDEA_SCOUT fixture path
-- Read models, SSE, practice arena, portfolio research
+- SSE, practice arena, portfolio research
+- Most of spec 14.12's read models (Campaign command centre, Agent
+  operations, Committee queue, Forward-test health, Practice leaderboard) —
+  only the Strategy Library one (`strategy_read_models`) is built, and
+  nothing reads it yet; `listStrategies` still queries live

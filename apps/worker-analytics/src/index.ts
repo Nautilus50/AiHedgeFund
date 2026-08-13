@@ -5,6 +5,7 @@ import {
   MetricCalculationJob,
   ParityCalculationJob,
   QUEUE_NAMES,
+  ReadModelRefreshJob,
   parseRedisUrl,
 } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
@@ -12,6 +13,7 @@ import {
   handleEquityReconstruction,
   handleMetricCalculation,
   handleParityCalculation,
+  handleReadModelRefresh,
   markRunAnalysed,
 } from "./handlers.js";
 
@@ -70,7 +72,18 @@ async function main() {
     { connection },
   );
 
-  for (const worker of [equityWorker, metricsWorker, parityWorker]) {
+  const readModelWorker = new Worker(
+    QUEUE_NAMES.readModelRefresh,
+    async (job) => {
+      const input = ReadModelRefreshJob.parse(job.data);
+      const result = await handleReadModelRefresh(db, input);
+      logger.info({ jobId: job.id, ...input, ...result }, "read model refreshed");
+      return result;
+    },
+    { connection },
+  );
+
+  for (const worker of [equityWorker, metricsWorker, parityWorker, readModelWorker]) {
     worker.on("failed", (job, error) => {
       logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
     });
@@ -78,14 +91,19 @@ async function main() {
 
   logger.info(
     {
-      queues: [QUEUE_NAMES.equityReconstruction, QUEUE_NAMES.metricCalculation, QUEUE_NAMES.parityCalculation],
+      queues: [
+        QUEUE_NAMES.equityReconstruction,
+        QUEUE_NAMES.metricCalculation,
+        QUEUE_NAMES.parityCalculation,
+        QUEUE_NAMES.readModelRefresh,
+      ],
     },
     "worker started",
   );
 
   const shutdown = async () => {
     logger.info("shutting down");
-    await Promise.all([equityWorker.close(), metricsWorker.close(), parityWorker.close()]);
+    await Promise.all([equityWorker.close(), metricsWorker.close(), parityWorker.close(), readModelWorker.close()]);
     process.exit(0);
   };
   process.on("SIGTERM", () => void shutdown());

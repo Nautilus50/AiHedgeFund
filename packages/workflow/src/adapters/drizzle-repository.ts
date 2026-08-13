@@ -175,7 +175,19 @@ export class DrizzleWorkflowRepository implements WorkflowRepository {
         aggregateVersion: createdAt.getTime().toString(),
         correlationId: generateId<string>(),
         actor: command.actorId,
-        payload: { from: command.from, to: command.to, policyVersion: command.policyVersion },
+        // ReadModelRefreshJob's exact shape, plus from/to/policyVersion as
+        // informational extras a consumer strict on that schema will simply
+        // strip — the relay routes this to read-model-refresh, whose job is
+        // to recompute the strategy's projection from scratch, not to apply
+        // this payload as a delta.
+        payload: {
+          organisationId: strategyRow.organisationId,
+          aggregateType: "strategy_version",
+          aggregateId: command.strategyVersionId,
+          from: command.from,
+          to: command.to,
+          policyVersion: command.policyVersion,
+        },
         createdAt,
       });
 

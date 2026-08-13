@@ -101,6 +101,7 @@ const TABLES = [
   "idempotency_records",
   "audit_events",
   "committee_decisions",
+  "strategy_read_models",
   "parity_reports",
   "metric_snapshots",
   "drawdown_points",

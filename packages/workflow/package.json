@@ -22,6 +22,7 @@
   "dependencies": {
     "@arf-os/contracts": "workspace:*",
     "@arf-os/db": "workspace:*",
+    "@arf-os/event-bus": "workspace:^",
     "drizzle-orm": "^0.38.2"
   },
   "devDependencies": {
