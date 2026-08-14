@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
+import { generateId } from "@arf-os/contracts";
 import { createDatabase, type Database } from "./client.js";
+import { prompts } from "./schema/agent-runtime.js";
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? "postgres://arf:arf@localhost:5432/arf_os_test";
@@ -98,6 +100,10 @@ export async function closeDatabase(db: Database): Promise<void> {
  */
 const TABLES = [
   "sse_tickets",
+  "agent_run_diagnostics",
+  // Deliberately NOT truncated: prompts are real, migration-seeded records
+  // (CLAUDE.md 11.2), not per-test fixtures — a worker with no APPROVED
+  // row for a role hard-fails in every environment, this DB included.
   "outbox_events",
   "idempotency_records",
   "audit_events",
@@ -131,6 +137,30 @@ const TABLES = [
   "organisations",
 ] as const;
 
+/**
+ * Content distinct from the real migration-seeded prompts (deliberately —
+ * this is test-only re-seed data, not a duplicate of production content)
+ * for every role `AGENT_RUNTIME_REGISTRY` currently wires. Re-inserted
+ * after every truncate because `prompts.approved_by REFERENCES users(id)`
+ * means `TRUNCATE users ... CASCADE` cascades into `prompts` too, even
+ * though `prompts` isn't itself in {@link TABLES} — a worker calling
+ * `loadApprovedPrompt` needs an APPROVED row to exist for every test, not
+ * just whatever the last real migration happened to seed.
+ */
+const TEST_PROMPT_ROLES = ["IDEA_SCOUT", "INDICATOR_RESEARCHER"] as const;
+
 export async function truncateAll(db: Database): Promise<void> {
   await db.execute(sql.raw(`TRUNCATE TABLE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`));
+
+  await db.insert(prompts).values(
+    TEST_PROMPT_ROLES.map((role) => ({
+      id: generateId<string>(),
+      role,
+      semanticVersion: "1.0.0",
+      content: `Test-only prompt content for ${role}.`,
+      contentHash: `test-${role.toLowerCase()}`,
+      status: "APPROVED" as const,
+      approvedAt: new Date(),
+    })),
+  );
 }

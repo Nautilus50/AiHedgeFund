@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@arf-os/agent-runtime": "workspace:*",
     "@arf-os/contracts": "workspace:*",
     "@arf-os/ui": "workspace:*",
     "@clerk/nextjs": "^6.9.6",

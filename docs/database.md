@@ -134,6 +134,7 @@ Never edit an applied migration. Destructive changes require an ADR
 | `0009_mature_sunspot` | `campaigns.created_at`, `strategies.created_at`, `backtest_runs.created_at` narrowed to millisecond precision — same cursor-pagination bug as `0006`, found on every other cursor-paginated listing endpoint (`listCampaigns`, `listStrategies`, `listBacktestRuns`) once audited for it |
 | `0010_sharp_runaways` | `outbox_events.organisation_id` (NOT NULL, backfilled) + composite index; `sse_tickets` table — see [ADR 0007](adr/0007-server-sent-events.md) |
 | `0011_skinny_jetstream` | Nine indexes for query patterns actually exercised by this codebase's own services — see Indexes below |
+| `0012_abnormal_christian_walker` | `prompts` table (versioned prompt records, CLAUDE.md 11.2, with a partial unique index on `role WHERE status='APPROVED'`) + seeded APPROVED rows for IDEA_SCOUT and INDICATOR_RESEARCHER; `agent_run_diagnostics` table (protected raw-provider-output storage, CLAUDE.md 11.3) — see [ADR 0008](adr/0008-agent-runtime-role-generalization.md) |
 
 ## Indexes
 

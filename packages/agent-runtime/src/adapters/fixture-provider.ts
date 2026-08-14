@@ -1,3 +1,4 @@
+import { AGENT_RUNTIME_REGISTRY } from "../registry.js";
 import type { ModelProvider, StructuredGenerationRequest, StructuredGenerationResult } from "../provider.js";
 
 /**
@@ -32,32 +33,10 @@ export class FixtureModelProvider implements ModelProvider {
   }
 }
 
-/** A valid IdeaCard fixture, used by dev runs and by this package's tests. */
-export const IDEA_SCOUT_FIXTURE = {
-  schemaVersion: "1.0.0",
-  title: "Overnight momentum carry in BTC perpetuals",
-  hypothesis:
-    "Perpetual funding paid during the Asian session creates a predictable drift into the London open.",
-  sourceSummary: "Practitioner observation on funding-rate mean reversion, plus published microstructure work.",
-  sourceLinks: [],
-  marketMechanism:
-    "Funding payments force leveraged longs to close into thin liquidity, creating short-lived downward pressure that reverts.",
-  expectedDirection: "long",
-  targetAssets: ["BYBIT:BTCUSDT.P"],
-  targetTimeframes: ["60"],
-  expectedRegime: "Range-bound to mildly trending, positive funding.",
-  failureRegime: "Strong directional trends, or sustained negative funding where the mechanism inverts.",
-  requiredInputs: ["ohlcv", "session boundaries"],
-  pineFeasible: true,
-  expectedTradeFrequency: "~1 trade per day",
-  cheapestFalsificationTest:
-    "Bucket returns by funding sign over 12 months; the edge must vanish when funding is negative.",
-  noveltyScore: 0.4,
-  evidenceStrength: "MODERATE",
-  risks: ["Funding data is not directly available in Pine; session proxy may be a weak substitute."],
-  recommendation: "RESEARCH",
-} as const;
-
+/** Built from {@link AGENT_RUNTIME_REGISTRY} — every registered role gets a fixture automatically. */
 export function createDevelopmentProvider(): FixtureModelProvider {
-  return new FixtureModelProvider(new Map<string, unknown>([["IDEA_SCOUT", IDEA_SCOUT_FIXTURE]]));
+  const fixtures = new Map<string, unknown>(
+    Object.entries(AGENT_RUNTIME_REGISTRY).map(([role, definition]) => [role, definition.fixtureOutput]),
+  );
+  return new FixtureModelProvider(fixtures);
 }

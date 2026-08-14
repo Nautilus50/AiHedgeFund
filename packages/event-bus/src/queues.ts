@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentRole } from "@arf-os/contracts";
 
 /** Every BullMQ queue the platform uses. Named centrally so producers and consumers can never drift on a string literal. */
 export const QUEUE_NAMES = {
@@ -70,7 +71,7 @@ export type ForwardSignalProcessingJob = z.infer<typeof ForwardSignalProcessingJ
 export const AgentRunJob = z.object({
   campaignId: z.string().uuid(),
   researchTaskId: z.string().uuid(),
-  role: z.string().min(1),
+  role: AgentRole,
 });
 export type AgentRunJob = z.infer<typeof AgentRunJob>;
 

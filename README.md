@@ -461,6 +461,7 @@ built and how to run it.
 | [0005](./docs/adr/0005-local-pine-runner.md) | Local runner executes SDL signal expressions directly, not generated Pine source |
 | [0006](./docs/adr/0006-forward-test-paper-engine.md) | Forward-test paper engine — first vertical slice, honest scope cuts |
 | [0007](./docs/adr/0007-server-sent-events.md) | Server-sent events — ticket-bridged auth, shared in-process poller, one page wired |
+| [0008](./docs/adr/0008-agent-runtime-role-generalization.md) | Agent runtime slice 2 — versioned prompts, protected diagnostics, generalized role dispatch proven with a second role |
 
 ### Quick start
 
@@ -528,7 +529,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Command Centre operational widgets (CLAUDE.md 20) | Built — pending-verification count, recent committee decisions, report-upload parse failures (all organisation-scoped SQL), and live BullMQ queue depth (`getQueueDepths`, `packages/event-bus`) behind one `GET /v1/operations/summary` endpoint |
 | Database indexes (CLAUDE.md 9.2) | Built — 9 indexes for query patterns this codebase's own services actually exercise (cursor-paginated listings, the outbox relay's continuous claim query, the repeated "latest version per strategy" `LATERAL` join, per-strategy-version decision/audit lookups), not speculative ones. See [database docs](docs/database.md#indexes) |
 | Abandoned-upload reaping | Built — `findAbandonedUploads`/`reapAbandonedUploads` cross-reference every object under an organisation's R2 prefix against `artefacts.object_key`, flagging (or deleting) anything unreferenced past a 24-hour grace period. Run manually (`pnpm --filter @arf-os/api reap-uploads [organisationId] [--dry-run]`) or wired to the deployment platform's own scheduler — this repo still has no in-process cron mechanism, deliberately (see ADR 0006/0007's precedent) |
-| Multi-agent runtime | Partial — provider port and one IDEA_SCOUT path |
+| Multi-agent runtime | Partial — generalized role dispatch (`AGENT_RUNTIME_REGISTRY`, one source of truth for the worker, fixture provider, and frontend role list), versioned prompt records (`prompts` table, CLAUDE.md 11.2), protected diagnostics storage for raw provider output (CLAUDE.md 11.3), and a real end-to-end path — campaign page → API → outbox → worker — for two roles: IDEA_SCOUT and INDICATOR_RESEARCHER. No real LLM provider adapter exists (no API credentials in this dev environment to build and verify one against); every run uses a deterministic dev fixture. Eight roles remain unbuilt, plus the leader agent's own orchestration loop — see [ADR 0008](docs/adr/0008-agent-runtime-role-generalization.md) |
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | First vertical slice built — token-authenticated TradingView webhook ingestion, async signal processing into deterministic paper fills (one open position at a time, no pyramiding), real equity/drawdown/metrics reusing the existing `@arf-os/metrics` functions unchanged, a two-axis live health endpoint (infrastructure vs strategy performance, CLAUDE.md 16.3), and a minimal frontend (create form with a one-time token reveal, deployment detail page). See [ADR 0006](docs/adr/0006-forward-test-paper-engine.md) for scope and honest gaps — no drift reports, no stored health snapshots, no live price feed, SSE deliberately deferred |
 | Server-sent events | First vertical slice built — resumable by event id, ticket-bridged auth for browser `EventSource` (no header support), one shared in-process poller per API instance fanning out from the outbox rather than a connection per viewer. Wired to one page (backtest-run detail, live job-progress refresh). Campaign updates and forward-deployment health remain un-migrated — see [ADR 0007](docs/adr/0007-server-sent-events.md) |
@@ -541,7 +542,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 245 unit tests, 165 integration tests, 3 end-to-end tests
+- 253 unit tests, 175 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched

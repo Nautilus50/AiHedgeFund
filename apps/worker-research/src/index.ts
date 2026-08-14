@@ -1,16 +1,9 @@
 import { Worker } from "bullmq";
-import { eq } from "drizzle-orm";
-import {
-  IdeaCard,
-  IDEA_SCOUT_PROMPT_VERSION,
-  IDEA_SCOUT_SYSTEM_PROMPT,
-  createDevelopmentProvider,
-  runStructuredAgent,
-} from "@arf-os/agent-runtime";
+import { createDevelopmentProvider } from "@arf-os/agent-runtime";
 import { createDatabase } from "@arf-os/db";
-import { researchTasks } from "@arf-os/db";
 import { AgentRunJob, QUEUE_NAMES, parseRedisUrl } from "@arf-os/event-bus";
 import { createLogger } from "@arf-os/observability";
+import { handleAgentRun } from "./handlers.js";
 
 try {
   process.loadEnvFile();
@@ -27,10 +20,9 @@ function requireEnv(name: string): string {
 }
 
 /**
- * Runs specialist agent tasks. Only the IDEA_SCOUT path is wired for this
- * milestone (CLAUDE_CODE_BUILD_PROMPT.md), and it deliberately does NOT
- * transition workflow state — the worker stores its structured output and
- * the API/orchestrator applies transition policy (CLAUDE.md 3.2).
+ * Runs specialist agent tasks for every role in `AGENT_RUNTIME_REGISTRY`
+ * (currently IDEA_SCOUT and INDICATOR_RESEARCHER — see ADR 0008 for the
+ * remaining roles and why no real LLM provider adapter exists yet).
  */
 async function main() {
   const db = createDatabase(requireEnv("DATABASE_URL"));
@@ -41,59 +33,13 @@ async function main() {
     QUEUE_NAMES.agentRun,
     async (job) => {
       const input = AgentRunJob.parse(job.data);
-
-      if (input.role !== "IDEA_SCOUT") {
-        throw new Error(`Role ${input.role} is not wired in this milestone.`);
-      }
-
-      await db
-        .update(researchTasks)
-        .set({ status: "RUNNING" })
-        .where(eq(researchTasks.id, input.researchTaskId));
-
-      const outcome = await runStructuredAgent(provider, {
-        role: "IDEA_SCOUT",
-        promptVersion: IDEA_SCOUT_PROMPT_VERSION,
-        systemPrompt: IDEA_SCOUT_SYSTEM_PROMPT,
-        userInput: `Campaign ${input.campaignId}: propose one falsifiable idea.`,
-        outputSchema: IdeaCard,
-      });
-
-      if (!outcome.ok) {
-        // Raw provider output stays out of the normal task record
-        // (CLAUDE.md 11.3 step 8) — only the safe summary is persisted.
-        await db
-          .update(researchTasks)
-          .set({
-            status: "FAILED_TERMINAL",
-            output: { reasonCode: outcome.reasonCode, issues: outcome.issues },
-            completedAt: new Date(),
-          })
-          .where(eq(researchTasks.id, input.researchTaskId));
-
-        logger.warn({ jobId: job.id, issues: outcome.issues }, "agent output failed schema validation");
-        return { ok: false };
-      }
-
-      await db
-        .update(researchTasks)
-        .set({
-          status: "SUCCEEDED",
-          output: {
-            ideaCard: outcome.result.output,
-            promptVersion: outcome.result.promptVersion,
-            costUsd: outcome.result.costUsd,
-            provider: provider.name,
-          },
-          completedAt: new Date(),
-        })
-        .where(eq(researchTasks.id, input.researchTaskId));
+      const result = await handleAgentRun(db, provider, input);
 
       logger.info(
-        { jobId: job.id, campaignId: input.campaignId, costUsd: outcome.result.costUsd },
-        "idea card produced",
+        { jobId: job.id, campaignId: input.campaignId, role: input.role, ...result },
+        result.skipped ? "already terminal, skipping redelivered job" : "agent run completed",
       );
-      return { ok: true };
+      return result;
     },
     { connection },
   );

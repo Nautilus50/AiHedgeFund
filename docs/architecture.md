@@ -78,6 +78,7 @@ state, end to end:
 | `strategy_version.transitioned` → `read-model-refresh` | `workflow` | `worker-analytics` |
 | `committee_decision.created` → `read-model-refresh` | `api` | `worker-analytics` |
 | `forward_signal.received` → `forward-signal-processing` | `api` | `worker-forward` |
+| `agent_run.requested` → `agent-run` | `api` | `worker-research` |
 
 `backtest_run.completed` (emitted by `worker-backtest`) has no row here — it
 routes to no queue, only to `SseHub`'s poller (below). Not every outbox event
@@ -184,11 +185,17 @@ forward-deployment health are not yet migrated to this.
 - Forward-test drift reports, a persisted health-snapshot time series, and
   live market-data-based price comparison — see ADR 0006's Alternatives for
   why each is deferred rather than half-built
-- Agent orchestration beyond the single IDEA_SCOUT fixture path
+- Eight of the eleven agent roles (`STRATEGY_ARCHITECT, PINE_ENGINEER,
+  BACKTEST_ENGINEER, ROBUSTNESS_VALIDATOR, FORWARD_TEST_OPERATOR,
+  STRATEGY_JUDGE, DATA_INTEGRITY_ANALYST, PORTFOLIO_RESEARCHER`), a real LLM
+  provider adapter (no API credentials in this dev environment to build and
+  verify one against), `AgentHandoff` assembly between roles, tool-allowlist
+  enforcement, and the leader agent's own autonomous planning/delegation
+  loop — see [ADR 0008](adr/0008-agent-runtime-role-generalization.md)
 - SSE beyond the one page above; practice arena; portfolio research
 - Two of spec 14.12's five read models: Agent operations and Practice
   leaderboard — their source systems (the real multi-agent runtime beyond
-  one fixture path, the practice arena) don't exist yet, so there is
+  two roles, the practice arena) don't exist yet, so there is
   nothing to build a read model over. Campaign command centre and
   Committee queue are built (as live grouped queries and a filtered read
   over `strategy_read_models`, not new tables — see README); Forward-test

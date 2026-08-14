@@ -29,6 +29,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@arf-os/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@arf-os/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -90,6 +93,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@arf-os/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@arf-os/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

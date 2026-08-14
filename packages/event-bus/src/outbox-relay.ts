@@ -75,6 +75,12 @@ export function routeOutboxEvent(row: OutboxRow): RoutedJob | undefined {
         jobId: deterministicJobId(QUEUE_NAMES.forwardSignalProcessing, row.id),
         data: row.payload,
       };
+    case "agent_run.requested":
+      return {
+        queue: QUEUE_NAMES.agentRun,
+        jobId: deterministicJobId(QUEUE_NAMES.agentRun, row.id),
+        data: row.payload,
+      };
     default:
       return undefined;
   }

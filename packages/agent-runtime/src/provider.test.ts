@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { IDEA_SCOUT_FIXTURE, createDevelopmentProvider } from "./adapters/fixture-provider.js";
+import { createDevelopmentProvider } from "./adapters/fixture-provider.js";
 import { IdeaCard, IDEA_SCOUT_PROMPT_VERSION, IDEA_SCOUT_SYSTEM_PROMPT } from "./idea-card.js";
+import { IndicatorResearchOutput } from "./indicator-research.js";
 import { runStructuredAgent, type ModelProvider, type StructuredGenerationResult } from "./provider.js";
+import {
+  AGENT_RUNTIME_REGISTRY,
+  IDEA_SCOUT_FIXTURE,
+  INDICATOR_RESEARCHER_FIXTURE,
+  isRegisteredAgentRole,
+} from "./registry.js";
 
 const ideaScoutRequest = {
   role: "IDEA_SCOUT",
@@ -107,9 +114,60 @@ describe("FixtureModelProvider", () => {
     expect(outcome.ok).toBe(true);
   });
 
+  it("serves the registered INDICATOR_RESEARCHER fixture too — proves the dev provider isn't hardcoded to one role", async () => {
+    const outcome = await runStructuredAgent(createDevelopmentProvider(), {
+      role: "INDICATOR_RESEARCHER",
+      promptVersion: "1.0.0",
+      systemPrompt: "irrelevant for a fixture provider",
+      userInput: "Research the funding-rate indicator.",
+      outputSchema: IndicatorResearchOutput,
+    });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.result.output.indicatorName).toBe(INDICATOR_RESEARCHER_FIXTURE.indicatorName);
+    }
+  });
+
   it("throws for an unregistered role rather than returning empty output", async () => {
     await expect(
       createDevelopmentProvider().generateStructured({ ...ideaScoutRequest, role: "STRATEGY_JUDGE" }),
     ).rejects.toThrow(/No fixture registered/);
+  });
+});
+
+describe("IndicatorResearchOutput", () => {
+  it("accepts the development fixture", () => {
+    expect(IndicatorResearchOutput.safeParse(INDICATOR_RESEARCHER_FIXTURE).success).toBe(true);
+  });
+
+  it("rejects a parameter range with no numeric bounds", () => {
+    const result = IndicatorResearchOutput.safeParse({
+      ...INDICATOR_RESEARCHER_FIXTURE,
+      parameterRanges: [{ name: "x", min: "not a number", max: 10, default: 5 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty parameterRanges array — every indicator has at least one tunable bound", () => {
+    const result = IndicatorResearchOutput.safeParse({ ...INDICATOR_RESEARCHER_FIXTURE, parameterRanges: [] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("AGENT_RUNTIME_REGISTRY", () => {
+  it("registers exactly the two roles this slice wires: IDEA_SCOUT and INDICATOR_RESEARCHER", () => {
+    expect(Object.keys(AGENT_RUNTIME_REGISTRY).sort()).toEqual(["IDEA_SCOUT", "INDICATOR_RESEARCHER"]);
+  });
+
+  it("isRegisteredAgentRole agrees with the registry's own keys, not a separate hardcoded list", () => {
+    expect(isRegisteredAgentRole("IDEA_SCOUT")).toBe(true);
+    expect(isRegisteredAgentRole("INDICATOR_RESEARCHER")).toBe(true);
+    expect(isRegisteredAgentRole("STRATEGY_JUDGE")).toBe(false);
+  });
+
+  it("every registered role's fixture output actually satisfies that role's own output schema", () => {
+    for (const definition of Object.values(AGENT_RUNTIME_REGISTRY)) {
+      expect(definition.outputSchema.safeParse(definition.fixtureOutput).success).toBe(true);
+    }
   });
 });

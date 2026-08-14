@@ -14,6 +14,7 @@
     "reap-uploads": "tsx src/scripts/reap-abandoned-uploads.ts"
   },
   "dependencies": {
+    "@arf-os/agent-runtime": "workspace:*",
     "@arf-os/auth": "workspace:*",
     "@arf-os/contracts": "workspace:*",
     "@arf-os/db": "workspace:*",

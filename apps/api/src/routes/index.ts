@@ -8,6 +8,7 @@ import { registerDashboardRoutes } from "./dashboard.js";
 import { registerDatasetRoutes } from "./datasets.js";
 import { registerForwardRoutes } from "./forward.js";
 import { registerOperationsRoutes } from "./operations.js";
+import { registerResearchTaskRoutes } from "./research-tasks.js";
 import { registerSseRoutes } from "./sse.js";
 import { registerStrategyRoutes } from "./strategies.js";
 import { registerVerificationRoutes } from "./verifications.js";
@@ -28,6 +29,7 @@ export function registerRoutes(app: FastifyInstance, deps: ApiDeps): void {
   registerDatasetRoutes(app, { db: deps.db });
   registerForwardRoutes(app, { db: deps.db });
   registerOperationsRoutes(app, { db: deps.db });
+  registerResearchTaskRoutes(app, { db: deps.db });
   registerSseRoutes(app, { db: deps.db, sseHub: deps.sseHub });
   registerStrategyRoutes(app, { db: deps.db });
   registerVerificationRoutes(app, { db: deps.db, s3: deps.s3, bucket: deps.bucket });

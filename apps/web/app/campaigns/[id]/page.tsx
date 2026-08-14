@@ -2,6 +2,7 @@ import Link from "next/link";
 import { apiFetchSafe } from "../../../lib/api";
 import { StateBadge } from "../../../components/Badge";
 import { Alert, Card, CardBody, CardHead, EmptyState, Timestamp } from "../../../components/primitives";
+import { NewResearchTaskForm } from "./NewResearchTaskForm";
 import { NewStrategyForm } from "./NewStrategyForm";
 
 interface CampaignDetail {
@@ -53,16 +54,28 @@ interface StrategyPage {
   items: StrategyListItem[];
 }
 
+interface ResearchTaskItem {
+  id: string;
+  role: string;
+  status: string;
+  input: { objective?: string } | null;
+  output: Record<string, unknown> | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaignResult, strategiesResult, summaryResult, queueResult, auditResult] = await Promise.all([
-    apiFetchSafe<CampaignDetail>(`/v1/campaigns/${id}`),
-    apiFetchSafe<StrategyPage>(`/v1/strategies?campaignId=${id}`),
-    apiFetchSafe<CampaignSummary>(`/v1/campaigns/${id}/summary`),
-    apiFetchSafe<{ items: CommitteeQueueItem[] }>(`/v1/committee-queue?campaignId=${id}`),
-    apiFetchSafe<{ items: AuditEvent[] }>(`/v1/campaigns/${id}/audit-events`),
-  ]);
+  const [campaignResult, strategiesResult, summaryResult, queueResult, auditResult, researchTasksResult] =
+    await Promise.all([
+      apiFetchSafe<CampaignDetail>(`/v1/campaigns/${id}`),
+      apiFetchSafe<StrategyPage>(`/v1/strategies?campaignId=${id}`),
+      apiFetchSafe<CampaignSummary>(`/v1/campaigns/${id}/summary`),
+      apiFetchSafe<{ items: CommitteeQueueItem[] }>(`/v1/committee-queue?campaignId=${id}`),
+      apiFetchSafe<{ items: AuditEvent[] }>(`/v1/campaigns/${id}/audit-events`),
+      apiFetchSafe<{ items: ResearchTaskItem[] }>(`/v1/campaigns/${id}/research-tasks`),
+    ]);
 
   if ("error" in campaignResult) {
     return (
@@ -178,6 +191,56 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </div>
           </CardBody>
         )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Research tasks"
+          hint="Specialist agent runs for this campaign — no real model provider is wired yet, so every run uses a deterministic dev fixture (ADR 0008)."
+        />
+        {"error" in researchTasksResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load research tasks. {researchTasksResult.error.message}</Alert>
+          </CardBody>
+        ) : researchTasksResult.data.items.length === 0 ? (
+          <EmptyState title="No research tasks yet">Queue one below to run a specialist agent.</EmptyState>
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Objective</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {researchTasksResult.data.items.map((task) => (
+                    <tr key={task.id}>
+                      <td className="mono">{task.role}</td>
+                      <td>{task.input?.objective ?? <span className="unset">—</span>}</td>
+                      <td>
+                        <StateBadge state={task.status} kind="runStatus" />
+                      </td>
+                      <td>
+                        <Timestamp value={task.createdAt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead title="New research task" hint="Queues a specialist agent run for this campaign." />
+        <CardBody>
+          <NewResearchTaskForm campaignId={id} />
+        </CardBody>
       </Card>
 
       <Card>

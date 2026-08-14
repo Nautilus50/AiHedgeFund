@@ -77,6 +77,10 @@ describe("routeOutboxEvent", () => {
     );
   });
 
+  it("routes agent_run.requested to the agent-run queue", () => {
+    expect(routeOutboxEvent(row({ eventType: "agent_run.requested" }))?.queue).toBe(QUEUE_NAMES.agentRun);
+  });
+
   it("returns undefined for an event nobody subscribes to", () => {
     expect(routeOutboxEvent(row({ eventType: "some.future.event" }))).toBeUndefined();
   });
