@@ -58,6 +58,15 @@ interface SignalEventRow {
   receivedAt: string;
 }
 
+interface HealthSnapshotRow {
+  id: string;
+  tickAt: string;
+  infrastructureHealth: string;
+  rejectionRate: string;
+  strategyPerformanceHealth: string;
+  currentDrawdownPct: string | null;
+}
+
 function quantityModelLabel(model: ForwardDeploymentDetail["fillModel"]["quantityModel"]): string {
   if (model.type === "percent_of_equity") return `${model.percent}% of equity`;
   if (model.type === "fixed") return `${model.quantity} units (fixed)`;
@@ -68,12 +77,13 @@ function quantityModelLabel(model: ForwardDeploymentDetail["fillModel"]["quantit
 export default async function ForwardDeploymentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [deploymentResult, healthResult, equityResult, drawdownResult, signalsResult] = await Promise.all([
+  const [deploymentResult, healthResult, equityResult, drawdownResult, signalsResult, healthSnapshotsResult] = await Promise.all([
     apiFetchSafe<ForwardDeploymentDetail>(`/v1/forward-deployments/${id}`),
     apiFetchSafe<ForwardDeploymentHealth>(`/v1/forward-deployments/${id}/health`),
     apiFetchSafe<{ items: EquityPoint[] }>(`/v1/forward-deployments/${id}/equity`),
     apiFetchSafe<{ items: DrawdownPoint[] }>(`/v1/forward-deployments/${id}/drawdown`),
     apiFetchSafe<{ items: SignalEventRow[] }>(`/v1/forward-deployments/${id}/signals`),
+    apiFetchSafe<{ items: HealthSnapshotRow[] }>(`/v1/forward-deployments/${id}/health-snapshots`),
   ]);
 
   if ("error" in deploymentResult) {
@@ -140,7 +150,64 @@ export default async function ForwardDeploymentDetailPage({ params }: { params: 
       </Card>
 
       <Card>
-        <CardHead title="Equity &amp; drawdown" hint="Reconstructed from paper fills alone — never a runner-reported summary (CLAUDE.md 26)." />
+        <CardHead
+          title="Health history"
+          hint="Periodic snapshots of the two axes above, written by an operator-run sweep (ADR 0012) — not pushed live, same polling deviation as the Health card."
+        />
+        {"error" in healthSnapshotsResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load health history. {healthSnapshotsResult.error.message}</Alert>
+          </CardBody>
+        ) : healthSnapshotsResult.data.items.length === 0 ? (
+          <EmptyState title="No snapshots yet">
+            Snapshots are written by an operator-run or platform-scheduled sweep, not automatically by this app.
+          </EmptyState>
+        ) : (
+          <CardBody flush>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Tick (UTC)</th>
+                    <th>Infrastructure</th>
+                    <th>Rejection rate</th>
+                    <th>Strategy performance</th>
+                    <th>Drawdown %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {healthSnapshotsResult.data.items.map((snapshot) => (
+                    <tr key={snapshot.id}>
+                      <td>
+                        <Timestamp value={snapshot.tickAt} />
+                      </td>
+                      <td>
+                        <StateBadge state={snapshot.infrastructureHealth} kind="health" />
+                      </td>
+                      <td className="num">{(Number(snapshot.rejectionRate) * 100).toFixed(1)}%</td>
+                      <td>
+                        <StateBadge state={snapshot.strategyPerformanceHealth} kind="health" />
+                      </td>
+                      <td className="num">{snapshot.currentDrawdownPct ?? <span className="unset">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Equity &amp; drawdown"
+          hint="Reconstructed from paper fills alone — never a runner-reported summary (CLAUDE.md 26)."
+          actions={
+            <Link href={`/forward-deployments/${deployment.id}/drift`} className="btn">
+              Drift report
+            </Link>
+          }
+        />
         <CardBody>
           {"error" in equityResult || "error" in drawdownResult ? (
             <Alert tone="error">Could not load evidence.</Alert>

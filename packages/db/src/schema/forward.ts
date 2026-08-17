@@ -1,4 +1,4 @@
-import { integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { organisations, users } from "./identity.js";
 import { strategyVersions } from "./strategy.js";
 
@@ -133,3 +133,35 @@ export const forwardDrawdownPoints = pgTable("forward_drawdown_points", {
   drawdown: numeric("drawdown", { precision: 20, scale: 8 }).notNull(),
   drawdownPct: numeric("drawdown_pct", { precision: 10, scale: 6 }).notNull(),
 });
+
+export const infrastructureHealthEnum = pgEnum("infrastructure_health", ["HEALTHY", "DEGRADED"]);
+export const strategyPerformanceHealthEnum = pgEnum("strategy_performance_health", ["OK", "DRAWDOWN_ALERT", "NOT_CONFIGURED"]);
+
+/**
+ * A persisted history of what `GET .../health` already computes live (ADR
+ * 0006 deferred persistence entirely). `tickAt` is one shared timestamp per
+ * sweep run (`sweepHealthSnapshots`, apps/api) — a retried sweep after a
+ * partial failure re-checks `(deploymentId, tickAt)` before inserting, so a
+ * retry is a no-op rather than a duplicate row (CLAUDE.md 3.6).
+ * `maxDrawdownPctAlertThresholdAtSnapshot` is denormalised from
+ * `forward_deployments` at computation time so a later threshold change never
+ * rewrites what an earlier snapshot's verdict was actually judged against.
+ */
+export const healthSnapshots = pgTable(
+  "health_snapshots",
+  {
+    id: uuid("id").primaryKey(),
+    deploymentId: uuid("deployment_id")
+      .notNull()
+      .references(() => forwardDeployments.id, { onDelete: "cascade" }),
+    tickAt: timestamp("tick_at", { withTimezone: true }).notNull(),
+    infrastructureHealth: infrastructureHealthEnum("infrastructure_health").notNull(),
+    infrastructureReasons: jsonb("infrastructure_reasons").notNull(),
+    rejectionRate: numeric("rejection_rate", { precision: 5, scale: 4 }).notNull(),
+    strategyPerformanceHealth: strategyPerformanceHealthEnum("strategy_performance_health").notNull(),
+    currentDrawdownPct: numeric("current_drawdown_pct", { precision: 10, scale: 6 }),
+    maxDrawdownPctAlertThresholdAtSnapshot: numeric("max_drawdown_pct_alert_threshold_at_snapshot", { precision: 5, scale: 2 }),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("health_snapshots_deployment_id_tick_at_idx").on(table.deploymentId, table.tickAt)],
+);

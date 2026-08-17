@@ -8,3 +8,4 @@ export * from "./portfolio.js";
 export * from "./equity.js";
 export * from "./drawdown.js";
 export * from "./parity.js";
+export * from "./fill-pairing.js";

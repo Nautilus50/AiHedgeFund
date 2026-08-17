@@ -2,15 +2,20 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { generateId } from "@arf-os/contracts";
 import {
+  backtestRuns,
   closeDatabase,
   createTestDatabase,
   forwardDeployments,
   forwardDrawdownPoints,
+  healthSnapshots,
   isTestDatabaseAvailable,
+  paperFills,
+  paperOrders,
   seedOrganisation,
   seedStrategyVersion,
   signalEvents,
   strategyVersions,
+  trades,
   truncateAll,
   type Database,
 } from "@arf-os/db";
@@ -19,8 +24,11 @@ import {
   createForwardDeployment,
   getForwardDeployment,
   getForwardDeploymentHealth,
+  getForwardDriftReport,
+  getHealthSnapshots,
   pauseForwardDeployment,
   resumeForwardDeployment,
+  sweepHealthSnapshots,
 } from "./forward-deployments.js";
 
 const available = await isTestDatabaseAvailable();
@@ -251,5 +259,185 @@ describe.skipIf(!available)("forward deployments (integration)", () => {
 
     const health = await getForwardDeploymentHealth(db, org.organisationId, created.deploymentId);
     expect(health?.strategyPerformanceHealth).toBe("DRAWDOWN_ALERT");
+  });
+
+  it("sweepHealthSnapshots writes one row per ACTIVE deployment, and a re-run with the same tickAt is a no-op", async () => {
+    const { organisationId, deploymentId } = await seedActiveDeployment();
+    const tickAt = new Date("2026-01-01T00:00:00Z");
+
+    const first = await sweepHealthSnapshots(db, organisationId, tickAt, false);
+    expect(first).toEqual([{ deploymentId, skippedExisting: false }]);
+
+    const second = await sweepHealthSnapshots(db, organisationId, tickAt, false);
+    expect(second).toEqual([{ deploymentId, skippedExisting: true }]);
+
+    const rows = await db.select().from(healthSnapshots).where(eq(healthSnapshots.deploymentId, deploymentId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.infrastructureHealth).toBe("HEALTHY");
+  });
+
+  it("dry-run reports what sweepHealthSnapshots would do without writing anything", async () => {
+    const { organisationId, deploymentId } = await seedActiveDeployment();
+
+    const result = await sweepHealthSnapshots(db, organisationId, new Date(), true);
+    expect(result).toEqual([{ deploymentId, skippedExisting: false }]);
+    expect(await db.select().from(healthSnapshots)).toHaveLength(0);
+  });
+
+  it("never returns another organisation's health snapshots", async () => {
+    const orgA = await seedOrganisation(db, { slug: "health-snap-org-a" });
+    const orgB = await seedOrganisation(db, { slug: "health-snap-org-b" });
+    const strategyA = await seedStrategyVersion(db, orgA, { workflowState: "PAPER_APPROVED" });
+    const createdA = await createForwardDeployment(db, orgA.organisationId, orgA.userId, {
+      strategyVersionId: strategyA.strategyVersionId,
+      symbol: "BTCUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!createdA.ok) throw new Error("unreachable");
+    await sweepHealthSnapshots(db, orgA.organisationId, new Date(), false);
+
+    expect(await getHealthSnapshots(db, orgB.organisationId, createdA.deploymentId)).toBeUndefined();
+    const ownRead = await getHealthSnapshots(db, orgA.organisationId, createdA.deploymentId);
+    expect(ownRead).toHaveLength(1);
+  });
+
+  it("drift report: NO_BASELINE_RUN when the strategy version has no SUCCEEDED backtest run", async () => {
+    const { organisationId, deploymentId } = await seedActiveDeployment();
+
+    const report = await getForwardDriftReport(db, organisationId, deploymentId);
+    expect(report).toMatchObject({ baseline: undefined, reasonCode: "NO_BASELINE_RUN" });
+  });
+
+  async function seedBaselineRun(strategyVersionId: string): Promise<string> {
+    const backtestRunId = generateId<string>();
+    await db.insert(backtestRuns).values({
+      id: backtestRunId,
+      strategyVersionId,
+      runnerType: "LOCAL_RUNNER",
+      runnerVersion: "local-1",
+      symbol: "BTCUSD",
+      timeframe: "1h",
+      segmentKind: "OUT_OF_SAMPLE",
+      fromTs: new Date("2024-01-01T00:00:00Z"),
+      toTs: new Date("2024-02-01T00:00:00Z"),
+      costModel: { commissionType: "percent", commissionValue: 0.1, slippageTicks: 0 },
+      initialCapital: "10000",
+      status: "SUCCEEDED",
+      sourceHash: "hash",
+    });
+    return backtestRunId;
+  }
+
+  it("drift report: INSUFFICIENT_FORWARD_TRADES below the 5-trade floor", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    const created = await createForwardDeployment(db, org.organisationId, org.userId, {
+      strategyVersionId: strategy.strategyVersionId,
+      symbol: "BTCUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!created.ok) throw new Error("unreachable");
+    await seedBaselineRun(strategy.strategyVersionId);
+
+    // Only 2 closed round trips — below MIN_FORWARD_TRADES_FOR_DRIFT (5).
+    for (let i = 0; i < 2; i++) {
+      const entrySignal = generateId<string>();
+      const exitSignal = generateId<string>();
+      await db.insert(signalEvents).values([
+        { id: entrySignal, deploymentId: created.deploymentId, idempotencyKey: generateId<string>(), eventType: "ENTRY_LONG", rawPayload: {} },
+        { id: exitSignal, deploymentId: created.deploymentId, idempotencyKey: generateId<string>(), eventType: "EXIT_LONG", rawPayload: {} },
+      ]);
+      const entryOrder = generateId<string>();
+      const exitOrder = generateId<string>();
+      await db.insert(paperOrders).values([
+        { id: entryOrder, deploymentId: created.deploymentId, signalEventId: entrySignal, direction: "LONG", role: "ENTRY", requestedPrice: "100", quantity: "1" },
+        { id: exitOrder, deploymentId: created.deploymentId, signalEventId: exitSignal, direction: "LONG", role: "EXIT", requestedPrice: "110", quantity: "1" },
+      ]);
+      await db.insert(paperFills).values([
+        { id: generateId<string>(), paperOrderId: entryOrder, deploymentId: created.deploymentId, sequenceNumber: i * 2 + 1, filledPrice: "100", filledAt: new Date() },
+        { id: generateId<string>(), paperOrderId: exitOrder, deploymentId: created.deploymentId, sequenceNumber: i * 2 + 2, filledPrice: "110", filledAt: new Date() },
+      ]);
+    }
+
+    const report = await getForwardDriftReport(db, org.organisationId, created.deploymentId);
+    expect(report).toMatchObject({ reasonCode: "INSUFFICIENT_FORWARD_TRADES", closedForwardTradeCount: 2 });
+  });
+
+  it("drift report: computes degradation against the baseline once 5+ forward trades have closed", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    const created = await createForwardDeployment(db, org.organisationId, org.userId, {
+      strategyVersionId: strategy.strategyVersionId,
+      symbol: "BTCUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!created.ok) throw new Error("unreachable");
+    const baselineRunId = await seedBaselineRun(strategy.strategyVersionId);
+
+    // Baseline: 2 winners, 0 losers — 100% win rate, hand-calculable.
+    await db.insert(trades).values([
+      {
+        id: generateId<string>(),
+        backtestRunId: baselineRunId,
+        sequenceNumber: 1,
+        direction: "LONG",
+        entryTime: new Date("2024-01-01T00:00:00Z"),
+        exitTime: new Date("2024-01-01T01:00:00Z"),
+        entryPrice: "100",
+        exitPrice: "110",
+        quantity: "1",
+        netPnl: "10",
+      },
+      {
+        id: generateId<string>(),
+        backtestRunId: baselineRunId,
+        sequenceNumber: 2,
+        direction: "LONG",
+        entryTime: new Date("2024-01-02T00:00:00Z"),
+        exitTime: new Date("2024-01-02T01:00:00Z"),
+        entryPrice: "100",
+        exitPrice: "110",
+        quantity: "1",
+        netPnl: "10",
+      },
+    ]);
+
+    // Forward: 5 closed round trips, all winners at $10 net each — same win rate as baseline (0% degradation).
+    for (let i = 0; i < 5; i++) {
+      const entrySignal = generateId<string>();
+      const exitSignal = generateId<string>();
+      await db.insert(signalEvents).values([
+        { id: entrySignal, deploymentId: created.deploymentId, idempotencyKey: generateId<string>(), eventType: "ENTRY_LONG", rawPayload: {} },
+        { id: exitSignal, deploymentId: created.deploymentId, idempotencyKey: generateId<string>(), eventType: "EXIT_LONG", rawPayload: {} },
+      ]);
+      const entryOrder = generateId<string>();
+      const exitOrder = generateId<string>();
+      await db.insert(paperOrders).values([
+        { id: entryOrder, deploymentId: created.deploymentId, signalEventId: entrySignal, direction: "LONG", role: "ENTRY", requestedPrice: "100", quantity: "1" },
+        { id: exitOrder, deploymentId: created.deploymentId, signalEventId: exitSignal, direction: "LONG", role: "EXIT", requestedPrice: "110", quantity: "1" },
+      ]);
+      await db.insert(paperFills).values([
+        { id: generateId<string>(), paperOrderId: entryOrder, deploymentId: created.deploymentId, sequenceNumber: i * 2 + 1, filledPrice: "100", filledAt: new Date() },
+        { id: generateId<string>(), paperOrderId: exitOrder, deploymentId: created.deploymentId, sequenceNumber: i * 2 + 2, filledPrice: "110", filledAt: new Date() },
+      ]);
+    }
+
+    const report = await getForwardDriftReport(db, org.organisationId, created.deploymentId);
+    expect(report).toMatchObject({
+      baseline: { backtestRunId: baselineRunId, segmentKind: "OUT_OF_SAMPLE" },
+      closedForwardTradeCount: 5,
+    });
+    if (!report || !("result" in report) || !report.result) throw new Error("expected a degradation result");
+    // Both sides: 100% win rate, positive profit factor — 0 pts win-rate degradation.
+    expect(report.result.winRateDegradationPct).toBe(0);
   });
 });

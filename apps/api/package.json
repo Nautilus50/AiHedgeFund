@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "reap-uploads": "tsx src/scripts/reap-abandoned-uploads.ts"
+    "reap-uploads": "tsx src/scripts/reap-abandoned-uploads.ts",
+    "health-sweep": "tsx src/scripts/sweep-health-snapshots.ts"
   },
   "dependencies": {
     "@arf-os/agent-runtime": "workspace:*",

@@ -11,8 +11,13 @@ import {
   signalEvents,
 } from "@arf-os/db";
 import type { ForwardSignalProcessingJob } from "@arf-os/event-bus";
-import { calculateCoreMetrics, computeDrawdownCurve, reconstructEquityCurve, METRICS_CALCULATION_VERSION } from "@arf-os/metrics";
-import { pairPaperFillsIntoTrades } from "./fill-pairing.js";
+import {
+  calculateCoreMetrics,
+  computeDrawdownCurve,
+  reconstructEquityCurve,
+  pairPaperFillsIntoTrades,
+  METRICS_CALCULATION_VERSION,
+} from "@arf-os/metrics";
 
 export interface ForwardSignalProcessingResult {
   status: "PROCESSED" | "REJECTED" | "ALREADY_PROCESSED";

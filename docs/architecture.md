@@ -182,9 +182,12 @@ forward-deployment health are not yet migrated to this.
 
 ## What is not built
 
-- Forward-test drift reports, a persisted health-snapshot time series, and
-  live market-data-based price comparison — see ADR 0006's Alternatives for
-  why each is deferred rather than half-built
+- Live market-data-based expected-vs-observed price comparison for forward
+  deployments — still genuinely deferred (ADR 0006's Alternatives). A drift
+  report (reusing Validation Lab's `computeDegradation`, not a new
+  statistical method) and a persisted `health_snapshots` history, run by an
+  operator/platform-scheduled sweep script mirroring `reap-abandoned-uploads.ts`,
+  are now built — see [ADR 0012](adr/0012-forward-drift-report-and-health-snapshots.md)
 - Eight of the eleven agent roles (`STRATEGY_ARCHITECT, PINE_ENGINEER,
   BACKTEST_ENGINEER, ROBUSTNESS_VALIDATOR, FORWARD_TEST_OPERATOR,
   STRATEGY_JUDGE, DATA_INTEGRITY_ANALYST, PORTFOLIO_RESEARCHER`), a real LLM

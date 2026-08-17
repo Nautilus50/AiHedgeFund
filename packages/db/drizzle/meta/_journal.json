@@ -99,6 +99,13 @@
       "when": 1786943583000,
       "tag": "0013_perpetual_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786977558146,
+      "tag": "0014_equal_vermin",
+      "breakpoints": true
     }
   ]
 }

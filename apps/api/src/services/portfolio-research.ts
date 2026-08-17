@@ -57,7 +57,7 @@ async function resolvePaperApprovedStrategies(
 
 const SEGMENT_PREFERENCE: Record<string, number> = { OUT_OF_SAMPLE: 0, VALIDATION: 1, IN_SAMPLE: 2 };
 
-interface RepresentativeRun {
+export interface RepresentativeRun {
   backtestRunId: string;
   segmentKind: string;
   symbol: string;
@@ -69,8 +69,16 @@ interface RepresentativeRun {
  * precedent: a correlation matrix needs exactly one node per strategy,
  * where Validation Lab's pairwise list didn't. Prefers the most
  * out-of-sample-like evidence available, most recent within that tier.
+ *
+ * Exported for reuse by the forward-test drift report (ADR 0012). No
+ * organisation check happens inside this function — it's safe only because
+ * every current caller has already verified `strategyVersionId` belongs to
+ * `organisationId` before calling (here, via `resolvePaperApprovedStrategies`'s
+ * own organisation-scoped LATERAL query; in forward-deployments.ts, via
+ * `getForwardDeployment`'s organisation-scoped join). Any future caller must
+ * do the same — this function does not re-check it.
  */
-async function resolveRepresentativeRun(db: Database, strategyVersionId: string): Promise<RepresentativeRun | undefined> {
+export async function resolveRepresentativeRun(db: Database, strategyVersionId: string): Promise<RepresentativeRun | undefined> {
   const rows = await db
     .select({ id: backtestRuns.id, segmentKind: backtestRuns.segmentKind, symbol: backtestRuns.symbol, createdAt: backtestRuns.createdAt })
     .from(backtestRuns)

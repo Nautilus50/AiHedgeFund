@@ -10,8 +10,10 @@ import {
   getForwardDeployment,
   getForwardDeploymentHealth,
   getForwardDrawdownCurve,
+  getForwardDriftReport,
   getForwardEquityCurve,
   getForwardSignalEvents,
+  getHealthSnapshots,
   pauseForwardDeployment,
   resumeForwardDeployment,
 } from "../services/forward-deployments.js";
@@ -163,6 +165,22 @@ export function registerForwardRoutes(app: FastifyInstance, deps: ForwardRouteDe
     const result = await getForwardSignalEvents(deps.db, auth.organisationId, id);
     if (!result) return notFound(reply, request, id);
     reply.send({ items: result });
+  });
+
+  app.get("/v1/forward-deployments/:id/health-snapshots", async (request, reply) => {
+    const auth = request.requireAuth();
+    const { id } = request.params as { id: string };
+    const result = await getHealthSnapshots(deps.db, auth.organisationId, id);
+    if (!result) return notFound(reply, request, id);
+    reply.send({ items: result });
+  });
+
+  app.get("/v1/forward-deployments/:id/drift-report", async (request, reply) => {
+    const auth = request.requireAuth();
+    const { id } = request.params as { id: string };
+    const result = await getForwardDriftReport(deps.db, auth.organisationId, id);
+    if (!result) return notFound(reply, request, id);
+    reply.send(result);
   });
 
   const WebhookRateLimitConfig = {

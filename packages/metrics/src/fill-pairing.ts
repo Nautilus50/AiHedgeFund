@@ -1,4 +1,4 @@
-import type { MetricsTrade } from "@arf-os/metrics";
+import type { MetricsTrade } from "./types.js";
 
 /** A `paper_fills` row joined with its `paper_orders` row (for direction and quantity, which live there). */
 export interface PaperFillRow {
@@ -13,14 +13,14 @@ export interface PaperFillRow {
 
 /**
  * Pairs a deployment's ENTRY/EXIT fills into `MetricsTrade[]`, the shape
- * `@arf-os/metrics`'s `reconstructEquityCurve`/`computeDrawdownCurve`/
- * `calculateCoreMetrics` already consume unchanged — mirrors the
- * entry/exit-row pairing shape in `packages/pine`'s list-of-trades parser,
- * operating on `paper_fills` rows instead of CSV rows. Unlike that parser,
- * `role` is already explicit on every row (no type-string inference
- * needed), and one open position at a time (no pyramiding, matching every
- * other runner in this repo) means pairing is a simple stack of depth ≤ 1:
- * an ENTRY opens the pending trade, the next EXIT closes it.
+ * `reconstructEquityCurve`/`computeDrawdownCurve`/`calculateCoreMetrics`
+ * already consume unchanged — mirrors the entry/exit-row pairing shape in
+ * `packages/pine`'s list-of-trades parser, operating on `paper_fills` rows
+ * instead of CSV rows. Unlike that parser, `role` is already explicit on
+ * every row (no type-string inference needed), and one open position at a
+ * time (no pyramiding, matching every other runner in this repo) means
+ * pairing is a simple stack of depth ≤ 1: an ENTRY opens the pending trade,
+ * the next EXIT closes it.
  */
 export function pairPaperFillsIntoTrades(fills: readonly PaperFillRow[]): MetricsTrade[] {
   const ordered = [...fills].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
