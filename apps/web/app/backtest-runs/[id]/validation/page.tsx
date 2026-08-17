@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { apiFetchSafe } from "../../../../lib/api";
 import { Alert, Card, CardBody, CardHead, EmptyState, Timestamp } from "../../../../components/primitives";
+import { SegmentTag } from "../../../../components/Provenance";
 
 interface SubsetMetrics {
   closedTradeCount: number;
@@ -112,7 +113,9 @@ export default async function ValidationLabPage({ params }: { params: Promise<{ 
                 <tbody>
                   {report.segmentDistribution.map((row) => (
                     <tr key={`${row.segmentKind}-${row.status}`}>
-                      <td className="mono">{row.segmentKind}</td>
+                      <td>
+                        <SegmentTag segment={row.segmentKind} />
+                      </td>
                       <td className="mono">{row.status}</td>
                       <td className="num">{row.total}</td>
                     </tr>
@@ -156,7 +159,9 @@ export default async function ValidationLabPage({ params }: { params: Promise<{ 
                           {entry.siblingRunId.slice(0, 8)}…
                         </Link>
                       </td>
-                      <td className="mono">{entry.segmentKind}</td>
+                      <td>
+                        <SegmentTag segment={entry.segmentKind} />
+                      </td>
                       <td className="num">{pct(entry.result.netProfitDegradationPct)}</td>
                       <td className="num">{pct(entry.result.profitFactorDegradationPct)}</td>
                       <td className="num">{entry.result.winRateDegradationPct.toFixed(1)}</td>

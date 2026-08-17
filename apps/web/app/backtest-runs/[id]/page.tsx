@@ -3,6 +3,7 @@ import { apiFetchSafe } from "../../../lib/api";
 import { StateBadge } from "../../../components/Badge";
 import { EquityDrawdownChart } from "../../../components/EquityDrawdownChart";
 import { Alert, Card, CardBody, CardHead, EmptyState, Hash, Timestamp } from "../../../components/primitives";
+import { SegmentTag } from "../../../components/Provenance";
 import { LiveRunUpdates } from "./LiveRunUpdates";
 
 interface BacktestRunDetail {
@@ -121,7 +122,8 @@ export default async function BacktestRunDetailPage({ params }: { params: Promis
             <StateBadge state={run.status} kind="runStatus" />
           </div>
           <p className="page-subtitle">
-            {run.segmentKind} · <Timestamp value={run.fromTs} dateOnly /> to <Timestamp value={run.toTs} dateOnly />
+            <SegmentTag segment={run.segmentKind} /> · <Timestamp value={run.fromTs} dateOnly /> to{" "}
+            <Timestamp value={run.toTs} dateOnly />
           </p>
         </div>
         <Link href={`/backtest-runs/${run.id}/validation`} className="btn">

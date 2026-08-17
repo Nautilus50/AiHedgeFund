@@ -7,7 +7,15 @@
  * confused with lifecycle state.
  */
 
-export type Segment = "IN_SAMPLE" | "VALIDATION" | "OUT_OF_SAMPLE" | "FINAL_HOLDOUT" | "FORWARD";
+export type Segment =
+  | "IN_SAMPLE"
+  | "VALIDATION"
+  | "OUT_OF_SAMPLE"
+  | "FINAL_HOLDOUT"
+  | "ROLLING_WALK_FORWARD"
+  | "ANCHORED_WALK_FORWARD"
+  | "REGIME"
+  | "FORWARD";
 export type Basis = "GROSS" | "NET";
 export type Source = "TRADINGVIEW" | "LOCAL_RUNNER" | "SIMULATED" | "PAPER";
 
@@ -16,6 +24,9 @@ const SEGMENT_LABEL: Record<Segment, string> = {
   VALIDATION: "validation",
   OUT_OF_SAMPLE: "out-of-sample",
   FINAL_HOLDOUT: "final holdout",
+  ROLLING_WALK_FORWARD: "rolling walk-forward",
+  ANCHORED_WALK_FORWARD: "anchored walk-forward",
+  REGIME: "regime",
   FORWARD: "forward",
 };
 
@@ -39,13 +50,14 @@ export function ProvenanceTag({ label, title }: { label: string; title: string }
   );
 }
 
-export function SegmentTag({ segment }: { segment: Segment }) {
-  return (
-    <ProvenanceTag
-      label={SEGMENT_LABEL[segment] ?? segment}
-      title={`Data segment: ${SEGMENT_LABEL[segment] ?? segment}`}
-    />
-  );
+/**
+ * Accepts any string, not just `Segment`, so callers rendering a raw API
+ * field (typed `string` at the fetch boundary) don't need an unsafe cast —
+ * an unrecognised value still renders, just without the humanised label.
+ */
+export function SegmentTag({ segment }: { segment: Segment | (string & {}) }) {
+  const label = SEGMENT_LABEL[segment as Segment] ?? segment;
+  return <ProvenanceTag label={label} title={`Data segment: ${label}`} />;
 }
 
 export function BasisTag({ basis }: { basis: Basis }) {

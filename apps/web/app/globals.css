@@ -180,15 +180,38 @@ p {
   display: flex;
   align-items: center;
   gap: var(--sp-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-nav::-webkit-scrollbar {
+  display: none;
 }
 .app-nav a {
   color: var(--c-text-faint);
   font-size: 13px;
   font-weight: 550;
+  white-space: nowrap;
 }
 .app-nav a:hover {
   color: var(--c-text);
   text-decoration: none;
+}
+
+/* Below this width the brand mark, nav labels, and header actions no
+ * longer fit on one 52px row — the nav becomes the scroll container
+ * (same "wide content scrolls in its own box" rule as .table-wrap)
+ * rather than letting the whole page gain horizontal scroll. */
+@media (max-width: 640px) {
+  .app-brand-mark {
+    display: none;
+  }
+  .app-header {
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+  }
+  .app-nav {
+    gap: var(--sp-3);
+  }
 }
 
 .app-header-spacer {

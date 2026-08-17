@@ -582,11 +582,18 @@ Honest gaps in what is built, beyond the "not started" rows above:
   records the cost model, window, and capital the researcher states. Nothing
   verifies those match what TradingView was actually configured with; parity
   on the resulting figures is the only check.
-- **The frontend is functional, not designed.** Unstyled forms and tables.
-  Equity/drawdown now render as linked charts (backtest-run page), but none
-  of the other evidence-labelling rules in spec 15 (in-sample/validation/
-  holdout/forward badges, gross vs net, simulated vs paper vs TradingView)
-  are implemented in the UI yet.
+- **The frontend has a real design system, not full coverage of spec 15's
+  evidence vocabulary.** A token-based light/dark theme, accessible focus
+  states, tabular numerals, status badges that pair colour with a glyph, and
+  provenance tags (`components/Provenance.tsx`) for segment/basis/source
+  exist and are exercised by every page built since Validation Lab. Every
+  route now has a loading skeleton and an error boundary
+  (`app/loading.tsx`/`app/error.tsx`/`app/global-error.tsx`), and the top nav
+  no longer overflows on narrow viewports. What's still missing: `SourceTag`
+  and `BasisTag` are wired into only one page (verification upload); most
+  metric tables show gross/net and TradingView/local-runner/simulated/paper
+  distinctions as plain column labels rather than the shared provenance
+  component, so the labelling exists but isn't uniformly applied yet.
 - **The local runner executes SDL expressions, not generated Pine source**,
   and only a constrained, entirely stateless grammar of them (eight `ta.*`
   functions including `highest`/`lowest`/`atr`, historical `[n]` offsets,
