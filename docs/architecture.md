@@ -192,12 +192,18 @@ forward-deployment health are not yet migrated to this.
   verify one against), `AgentHandoff` assembly between roles, tool-allowlist
   enforcement, and the leader agent's own autonomous planning/delegation
   loop — see [ADR 0008](adr/0008-agent-runtime-role-generalization.md)
-- SSE beyond the one page above; portfolio research
+- SSE beyond the one page above
 - Model-graded scoring, automated champion/challenger prompt comparison,
   lesson records, and the three memory scopes (reference/episodic/failure)
   for the Practice Arena — see [ADR 0010](adr/0010-practice-arena-first-slice.md)
   for what the first slice actually built (benchmark tasks, practice runs
   against any prompt version, human-graded scoring only)
+- Signal overlap, strategy-family concentration, capacity assumptions,
+  portfolio-level stress tests, risk-budget proposals, and strategy
+  redundancy/replacement analysis for Portfolio Research — see
+  [ADR 0011](adr/0011-portfolio-research-first-slice.md) for what the first
+  slice actually built (trade-close-event correlation, exposure overlap,
+  market/turnover concentration)
 - Two of spec 14.12's five read models: Agent operations and Practice
   leaderboard — their source systems (the real multi-agent runtime beyond
   two roles) are still only a first slice, so there is not yet

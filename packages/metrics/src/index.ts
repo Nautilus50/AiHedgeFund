@@ -4,6 +4,7 @@ export * from "./types.js";
 export * from "./decimal.js";
 export * from "./trade-metrics.js";
 export * from "./robustness.js";
+export * from "./portfolio.js";
 export * from "./equity.js";
 export * from "./drawdown.js";
 export * from "./parity.js";

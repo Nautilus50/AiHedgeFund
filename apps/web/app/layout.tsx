@@ -23,6 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <Link href="/">Command Centre</Link>
                 <Link href="/strategies">Strategy Library</Link>
                 <Link href="/practice-arena">Practice Arena</Link>
+                <Link href="/portfolio-research">Portfolio Research</Link>
               </nav>
               <div className="app-header-spacer" />
               <div className="app-header-actions">

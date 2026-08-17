@@ -464,6 +464,7 @@ built and how to run it.
 | [0008](./docs/adr/0008-agent-runtime-role-generalization.md) | Agent runtime slice 2 — versioned prompts, protected diagnostics, generalized role dispatch proven with a second role |
 | [0009](./docs/adr/0009-validation-lab-first-slice.md) | Validation Lab first slice — four robustness checks computable purely from existing data, no workflow gate |
 | [0010](./docs/adr/0010-practice-arena-first-slice.md) | Practice Arena first slice — benchmark tasks, practice runs against any prompt version, human-graded scoring only |
+| [0011](./docs/adr/0011-portfolio-research-first-slice.md) | Portfolio Research first slice — trade-close-event correlation (Spearman, not Pearson), exposure overlap, market/turnover concentration |
 
 ### Quick start
 
@@ -537,7 +538,7 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Server-sent events | First vertical slice built — resumable by event id, ticket-bridged auth for browser `EventSource` (no header support), one shared in-process poller per API instance fanning out from the outbox rather than a connection per viewer. Wired to one page (backtest-run detail, live job-progress refresh). Campaign updates and forward-deployment health remain un-migrated — see [ADR 0007](docs/adr/0007-server-sent-events.md) |
 | Validation Lab | First slice built — segment distribution, IS/OOS degradation (every matching sibling run, not a single invented comparison), trade-removal concentration (full cumulative curve), and long/short breakdown, all computed live from existing `backtest_runs`/`trades` data — no new table, no workflow gate. 15 of 19 spec'd robustness tests remain unbuilt (need re-running backtests, additional datasets, or real statistical methodology this session won't improvise) — listed explicitly on the page itself, not just the ADR. See [ADR 0009](docs/adr/0009-validation-lab-first-slice.md) |
 | Practice Arena | First slice built — benchmark tasks (blind practice tasks per agent role), practice runs against any specific prompt version (DRAFT or APPROVED, not just the currently-approved one) through the same `runStructuredAgent`/`AGENT_RUNTIME_REGISTRY` path real research uses, and human-graded scoring (the one dimension spec §10.4 lists that's meaningful without a live model). No model-graded scoring, no automated champion/challenger comparison, no DRAFT→APPROVED prompt promotion (no platform-admin role concept exists to safely gate it), no memory scopes. See [ADR 0010](docs/adr/0010-practice-arena-first-slice.md) |
-| Portfolio research | Not started |
+| Portfolio Research | First slice built — return correlation, drawdown correlation, exposure overlap (Jaccard index of trade-time-window overlap), and market/turnover concentration, all computed live across an organisation's PAPER_APPROVED strategies — no new table. Rank (Spearman, not Pearson) correlation, a named `MIN_OVERLAP_DAYS` threshold, and a deliberate one-representative-run-per-strategy selection (a departure from Validation Lab's "return every match" precedent, reasoned in the ADR). 6 of the spec's Portfolio Researcher responsibilities remain unbuilt (signal overlap, strategy-family concentration, capacity assumptions, stress tests, risk-budget proposals, redundancy analysis) — listed explicitly on the page itself. See [ADR 0011](docs/adr/0011-portfolio-research-first-slice.md) |
 | Live execution | Intentionally out of scope |
 
 ### Verification status
@@ -546,7 +547,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 264 unit tests, 196 integration tests, 3 end-to-end tests
+- 276 unit tests, 203 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
