@@ -44,6 +44,9 @@ importers:
       '@arf-os/event-bus':
         specifier: workspace:*
         version: link:../../packages/event-bus
+      '@arf-os/metrics':
+        specifier: workspace:*
+        version: link:../../packages/metrics
       '@arf-os/observability':
         specifier: workspace:*
         version: link:../../packages/observability

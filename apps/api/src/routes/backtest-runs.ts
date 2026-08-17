@@ -19,6 +19,7 @@ import {
   verificationMatchesVersion,
 } from "../services/backtest-runs.js";
 import { getStrategyVersion } from "../services/strategy-registry.js";
+import { getValidationLabReport } from "../services/validation-lab.js";
 
 export interface BacktestRunRouteDeps {
   db: Database;
@@ -257,5 +258,26 @@ export function registerBacktestRunRoutes(app: FastifyInstance, deps: BacktestRu
     const result = await getParityReports(deps.db, auth.organisationId, id);
     if (!result) return notFound(reply, request, id);
     reply.send({ items: result });
+  });
+
+  app.get("/v1/backtest-runs/:id/validation-lab", async (request, reply) => {
+    const auth = request.requireAuth();
+    const { id } = request.params as { id: string };
+    const query = request.query as { topN?: string };
+
+    const topN = query.topN ? Number(query.topN) : undefined;
+    if (topN !== undefined && (!Number.isInteger(topN) || topN < 1 || topN > 20)) {
+      sendProblem(reply, {
+        status: 422,
+        title: "Invalid topN",
+        detail: "topN must be an integer between 1 and 20.",
+        instance: request.url,
+      });
+      return;
+    }
+
+    const result = await getValidationLabReport(deps.db, auth.organisationId, id, { topN });
+    if (!result) return notFound(reply, request, id);
+    reply.send(result);
   });
 }

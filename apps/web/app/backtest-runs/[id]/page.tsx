@@ -124,6 +124,9 @@ export default async function BacktestRunDetailPage({ params }: { params: Promis
             {run.segmentKind} · <Timestamp value={run.fromTs} dateOnly /> to <Timestamp value={run.toTs} dateOnly />
           </p>
         </div>
+        <Link href={`/backtest-runs/${run.id}/validation`} className="btn">
+          Validation Lab
+        </Link>
       </div>
 
       {run.status === "FAILED_TERMINAL" && (

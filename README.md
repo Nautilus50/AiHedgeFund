@@ -462,6 +462,7 @@ built and how to run it.
 | [0006](./docs/adr/0006-forward-test-paper-engine.md) | Forward-test paper engine — first vertical slice, honest scope cuts |
 | [0007](./docs/adr/0007-server-sent-events.md) | Server-sent events — ticket-bridged auth, shared in-process poller, one page wired |
 | [0008](./docs/adr/0008-agent-runtime-role-generalization.md) | Agent runtime slice 2 — versioned prompts, protected diagnostics, generalized role dispatch proven with a second role |
+| [0009](./docs/adr/0009-validation-lab-first-slice.md) | Validation Lab first slice — four robustness checks computable purely from existing data, no workflow gate |
 
 ### Quick start
 
@@ -533,7 +534,8 @@ This milestone validates the hardest foundations: contracts, versioning, ingesti
 | Local Pine runner (`backtest-sdk`) | First vertical slice built — executes SDL signal expressions (not generated Pine source) against a seeded OHLCV dataset, launchable from the UI (Backtest Lab) as well as the API; see [ADR 0005](docs/adr/0005-local-pine-runner.md) for scope and honest capability gaps |
 | Forward-test paper engine | First vertical slice built — token-authenticated TradingView webhook ingestion, async signal processing into deterministic paper fills (one open position at a time, no pyramiding), real equity/drawdown/metrics reusing the existing `@arf-os/metrics` functions unchanged, a two-axis live health endpoint (infrastructure vs strategy performance, CLAUDE.md 16.3), and a minimal frontend (create form with a one-time token reveal, deployment detail page). See [ADR 0006](docs/adr/0006-forward-test-paper-engine.md) for scope and honest gaps — no drift reports, no stored health snapshots, no live price feed, SSE deliberately deferred |
 | Server-sent events | First vertical slice built — resumable by event id, ticket-bridged auth for browser `EventSource` (no header support), one shared in-process poller per API instance fanning out from the outbox rather than a connection per viewer. Wired to one page (backtest-run detail, live job-progress refresh). Campaign updates and forward-deployment health remain un-migrated — see [ADR 0007](docs/adr/0007-server-sent-events.md) |
-| Validation lab, practice arena, portfolio research | Not started |
+| Validation Lab | First slice built — segment distribution, IS/OOS degradation (every matching sibling run, not a single invented comparison), trade-removal concentration (full cumulative curve), and long/short breakdown, all computed live from existing `backtest_runs`/`trades` data — no new table, no workflow gate. 15 of 19 spec'd robustness tests remain unbuilt (need re-running backtests, additional datasets, or real statistical methodology this session won't improvise) — listed explicitly on the page itself, not just the ADR. See [ADR 0009](docs/adr/0009-validation-lab-first-slice.md) |
+| Practice arena, portfolio research | Not started |
 | Live execution | Intentionally out of scope |
 
 ### Verification status
@@ -542,7 +544,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 253 unit tests, 175 integration tests, 3 end-to-end tests
+- 264 unit tests, 184 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
