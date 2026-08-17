@@ -1,5 +1,10 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
+import { verifyWebhook } from "@clerk/backend/webhooks";
+import type { WebhookEvent, OrganizationMembershipJSON } from "@clerk/backend";
 import type { ClerkClaims } from "./context.js";
+
+/** Re-exported so callers (apps/api) never import `@clerk/backend` themselves (CLAUDE.md 11.1). */
+export type { WebhookEvent, OrganizationMembershipJSON };
 
 export interface ClerkConfig {
   secretKey: string;
@@ -47,6 +52,23 @@ export async function verifyClerkToken(token: string, secretKey: string): Promis
       subject: payload.sub,
       clerkOrganisationId: extractOrganisationId(payload),
     };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Verifies a Clerk webhook request's `svix-*` signature headers against the
+ * raw request body. Wraps `@clerk/backend/webhooks`'s `verifyWebhook` (which
+ * itself wraps `svix`) so `apps/api` never imports `@clerk/backend` directly
+ * (CLAUDE.md 11.1), mirroring `verifyClerkToken`'s exact shape: swallow any
+ * verification failure — bad signature, expired timestamp, malformed body —
+ * and return `undefined` rather than throw, so callers uniformly treat "not
+ * verified" as untrusted input (CLAUDE.md 19.5).
+ */
+export async function verifyClerkWebhook(request: Request, signingSecret: string): Promise<WebhookEvent | undefined> {
+  try {
+    return await verifyWebhook(request, { signingSecret });
   } catch {
     return undefined;
   }

@@ -21,3 +21,8 @@ export function redactWebhookToken(url: string): string {
 export function redactSseTicket(url: string): string {
   return url.replace(SSE_TICKET_PATH, "$1[redacted]");
 }
+
+// The Clerk webhook route (ADR 0013) carries its auth in the `svix-signature`
+// header, not the URL — no entry needed here. `server.ts`'s request logger
+// serializes only method/url/hostname/remoteAddress/remotePort, never
+// headers, so the signature is never logged by default.

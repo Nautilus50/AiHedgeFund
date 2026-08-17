@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const organisationRoleEnum = pgEnum("organisation_role", [
   "VIEWER",
@@ -29,15 +29,24 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Organisation-scoped role assignment. Every aggregate access must verify membership (CLAUDE.md 19.1). */
-export const memberships = pgTable("memberships", {
-  id: uuid("id").primaryKey(),
-  organisationId: uuid("organisation_id")
-    .notNull()
-    .references(() => organisations.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  role: organisationRoleEnum("role").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * Organisation-scoped role assignment. Every aggregate access must verify
+ * membership (CLAUDE.md 19.1). Unique on (organisationId, userId) so the
+ * Clerk webhook's check-then-insert provisioning (ADR 0013) can never
+ * duplicate a membership on a redelivered event.
+ */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: organisationRoleEnum("role").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("memberships_organisation_id_user_id_idx").on(table.organisationId, table.userId)],
+);

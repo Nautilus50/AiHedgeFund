@@ -101,9 +101,27 @@ pnpm db:migrate
 ## 5. Link your Clerk identity to a local organisation
 
 The API resolves a Clerk session to an internal organisation through
-`organisations.clerk_organisation_id` and `users.external_auth_subject`. Until
-a provisioning flow exists (see Known limitations), insert those links by
-hand once — take the `org_…` and `user_…` ids from your Clerk dashboard:
+`organisations.clerk_organisation_id` and `users.external_auth_subject`.
+
+**Preferred: configure the provisioning webhook (ADR 0013).** In the Clerk
+dashboard → **Webhooks** → **Add Endpoint**:
+
+- Endpoint URL: `<your api host>/v1/webhooks/clerk` (a public URL — for local
+  dev, tunnel `apps/api` with `ngrok`/`cloudflared` or similar; Clerk's own
+  dashboard can also send a manual test event to a public URL)
+- Subscribe to at least **`organizationMembership.created`**
+- Copy the **Signing Secret** it generates into `CLERK_WEBHOOK_SIGNING_SECRET`
+  in `apps/api/.env`
+
+With that set, creating or joining a Clerk organisation automatically
+provisions the matching `organisations`/`users`/`memberships` rows — the org
+creator's own membership always gets `ADMIN`, everyone after that gets
+`RESEARCHER` unless Clerk itself reports them as `org:admin`. No manual step
+needed afterward; just sign up normally.
+
+**Fallback: manual SQL.** If you haven't configured the webhook yet (e.g.
+quick local testing with no public URL available), insert the links by hand
+once — take the `org_…` and `user_…` ids from your Clerk dashboard:
 
 ```sql
 INSERT INTO organisations (id, name, slug, clerk_organisation_id)

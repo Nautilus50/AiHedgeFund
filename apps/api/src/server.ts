@@ -6,6 +6,7 @@ import { createDatabase } from "@arf-os/db";
 import { redactSseTicket, redactWebhookToken } from "./lib/log-redaction.js";
 import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
+import { registerClerkWebhook } from "./plugins/webhooks-clerk.js";
 import { SseHub } from "./lib/sse-hub.js";
 import { createObjectStoreClient } from "./services/object-store.js";
 import { registerRoutes } from "./routes/index.js";
@@ -48,6 +49,11 @@ async function buildServer() {
 
   const db = createDatabase(requireEnv("DATABASE_URL"));
   await registerAuth(app, { db, clerkSecretKey: requireEnv("CLERK_SECRET_KEY") });
+
+  // CLERK_WEBHOOK_SIGNING_SECRET is intentionally not requireEnv()'d — unlike
+  // every other secret above, local dev boots fine without ever configuring
+  // Clerk's webhook dashboard; the route just 404s until it's set (ADR 0013).
+  await app.register(registerClerkWebhook, { db, signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET });
 
   // Registered after auth, so its onRequest hook runs second and can key on
   // request.auth.organisationId — every caller inside one org shares a

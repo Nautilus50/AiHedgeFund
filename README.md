@@ -466,6 +466,7 @@ built and how to run it.
 | [0010](./docs/adr/0010-practice-arena-first-slice.md) | Practice Arena first slice — benchmark tasks, practice runs against any prompt version, human-graded scoring only |
 | [0011](./docs/adr/0011-portfolio-research-first-slice.md) | Portfolio Research first slice — trade-close-event correlation (Spearman, not Pearson), exposure overlap, market/turnover concentration |
 | [0012](./docs/adr/0012-forward-drift-report-and-health-snapshots.md) | Forward-test drift report (reuses Validation Lab's `computeDegradation`, not a new statistical method) and persisted health snapshots (operator/platform-scheduled sweep script, not a BullMQ repeatable job) |
+| [0013](./docs/adr/0013-organisation-provisioning-webhook.md) | Automatic organisation provisioning via a single Clerk `organizationMembership.created` webhook — no new dependency at the call site (`@clerk/backend`'s own `verifyWebhook`), founding member always gets `ADMIN` |
 
 ### Quick start
 
@@ -548,7 +549,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 284 unit tests, 209 integration tests, 3 end-to-end tests
+- 288 unit tests, 215 integration tests, 3 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
@@ -557,8 +558,14 @@ instance.
 
 Honest gaps in what is built, beyond the "not started" rows above:
 
-- **Organisation provisioning is manual.** Linking a Clerk organisation to a
-  local one needs a one-off SQL insert ([local setup](docs/local-setup.md)).
+- **Organisation provisioning is automatic once configured, manual otherwise.**
+  A Clerk webhook (`POST /v1/webhooks/clerk`, ADR 0013) auto-links a Clerk
+  organisation/user/membership on `organizationMembership.created` when
+  `CLERK_WEBHOOK_SIGNING_SECRET` is set — the org's founding member always
+  gets `ADMIN`. Without that secret configured (e.g. no public URL for local
+  dev), the route 404s and the one-off manual SQL insert
+  ([local setup](docs/local-setup.md)) is still required. Deletion/rename
+  events aren't synced — see the ADR's Consequences.
 - **Browser uploads need a CORS policy on the bucket**, which must be set in
   the storage provider's dashboard. Without it the presigned `PUT` is blocked
   by the browser even though every test passes — Node's `fetch` does not

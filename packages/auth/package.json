@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@arf-os/contracts": "workspace:*",
-    "@clerk/backend": "^1.21.4"
+    "@clerk/backend": "^1.21.4",
+    "svix": "^1.62.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
