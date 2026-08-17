@@ -100,6 +100,8 @@ export async function closeDatabase(db: Database): Promise<void> {
  */
 const TABLES = [
   "sse_tickets",
+  "practice_runs",
+  "benchmark_tasks",
   "agent_run_diagnostics",
   // Deliberately NOT truncated: prompts are real, migration-seeded records
   // (CLAUDE.md 11.2), not per-test fixtures — a worker with no APPROVED

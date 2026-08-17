@@ -77,6 +77,10 @@ describe("routeOutboxEvent", () => {
     );
   });
 
+  it("routes practice_run.requested to the practice-run queue", () => {
+    expect(routeOutboxEvent(row({ eventType: "practice_run.requested" }))?.queue).toBe(QUEUE_NAMES.practiceRun);
+  });
+
   it("routes agent_run.requested to the agent-run queue", () => {
     expect(routeOutboxEvent(row({ eventType: "agent_run.requested" }))?.queue).toBe(QUEUE_NAMES.agentRun);
   });

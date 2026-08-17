@@ -192,11 +192,16 @@ forward-deployment health are not yet migrated to this.
   verify one against), `AgentHandoff` assembly between roles, tool-allowlist
   enforcement, and the leader agent's own autonomous planning/delegation
   loop — see [ADR 0008](adr/0008-agent-runtime-role-generalization.md)
-- SSE beyond the one page above; practice arena; portfolio research
+- SSE beyond the one page above; portfolio research
+- Model-graded scoring, automated champion/challenger prompt comparison,
+  lesson records, and the three memory scopes (reference/episodic/failure)
+  for the Practice Arena — see [ADR 0010](adr/0010-practice-arena-first-slice.md)
+  for what the first slice actually built (benchmark tasks, practice runs
+  against any prompt version, human-graded scoring only)
 - Two of spec 14.12's five read models: Agent operations and Practice
   leaderboard — their source systems (the real multi-agent runtime beyond
-  two roles, the practice arena) don't exist yet, so there is
-  nothing to build a read model over. Campaign command centre and
+  two roles) are still only a first slice, so there is not yet
+  enough to build a meaningful read model over. Campaign command centre and
   Committee queue are built (as live grouped queries and a filtered read
   over `strategy_read_models`, not new tables — see README); Forward-test
   health deliberately stays live-on-read per ADR 0006. `strategy_read_models`

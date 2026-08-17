@@ -2,8 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { generateId } from "@arf-os/contracts";
 import { AGENT_RUNTIME_REGISTRY, isRegisteredAgentRole, runStructuredAgent, type ModelProvider } from "@arf-os/agent-runtime";
 import type { Database } from "@arf-os/db";
-import { agentRunDiagnostics, prompts, researchTasks } from "@arf-os/db";
-import type { AgentRunJob } from "@arf-os/event-bus";
+import { agentRunDiagnostics, benchmarkTasks, practiceRuns, prompts, researchTasks } from "@arf-os/db";
+import type { AgentRunJob, PracticeRunJob } from "@arf-os/event-bus";
 
 export interface AgentRunResult {
   ok: boolean;
@@ -117,6 +117,94 @@ export async function handleAgentRun(db: Database, provider: ModelProvider, inpu
       },
     });
   });
+
+  return { ok: true };
+}
+
+export interface PracticeRunResult {
+  ok: boolean;
+  skipped?: boolean;
+}
+
+/**
+ * Runs one practice/benchmark task against one *explicitly specified*
+ * prompt row — DRAFT or APPROVED, deliberately not resolved through
+ * {@link loadApprovedPrompt}, which continues to govern only the real
+ * research path (ADR 0010). No protected-diagnostics write: practice
+ * output isn't research evidence, so there's nothing protected to store —
+ * `result.rawOutput`/`outcome.rawOutput` is never persisted here at all.
+ */
+export async function handlePracticeRun(db: Database, provider: ModelProvider, input: PracticeRunJob): Promise<PracticeRunResult> {
+  if (!isRegisteredAgentRole(input.role)) {
+    throw new Error(`Role ${input.role} is not wired yet.`);
+  }
+  const definition = AGENT_RUNTIME_REGISTRY[input.role];
+
+  const [runRow] = await db.select().from(practiceRuns).where(eq(practiceRuns.id, input.practiceRunId)).limit(1);
+  if (!runRow) {
+    throw new Error(`Practice run ${input.practiceRunId} not found.`);
+  }
+
+  // Same redelivery guard as handleAgentRun (CLAUDE.md 3.6): BullMQ's
+  // at-least-once delivery must never re-run side effects on an already
+  // terminal run.
+  if (runRow.status === "SUCCEEDED" || runRow.status === "FAILED_TERMINAL") {
+    return { ok: true, skipped: true };
+  }
+
+  await db.update(practiceRuns).set({ status: "RUNNING" }).where(eq(practiceRuns.id, input.practiceRunId));
+
+  const [taskRow] = await db.select().from(benchmarkTasks).where(eq(benchmarkTasks.id, input.benchmarkTaskId)).limit(1);
+  if (!taskRow) {
+    throw new Error(`Benchmark task ${input.benchmarkTaskId} not found.`);
+  }
+
+  const [promptRow] = await db.select().from(prompts).where(eq(prompts.id, input.promptId)).limit(1);
+  if (!promptRow) {
+    throw new Error(`Prompt ${input.promptId} not found.`);
+  }
+
+  const startedAt = Date.now();
+  const outcome = await runStructuredAgent(provider, {
+    role: input.role,
+    promptVersion: promptRow.semanticVersion,
+    systemPrompt: promptRow.content,
+    userInput: taskRow.objective,
+    outputSchema: definition.outputSchema,
+  });
+  const latencyMs = Date.now() - startedAt;
+
+  if (!outcome.ok) {
+    await db
+      .update(practiceRuns)
+      .set({
+        status: "FAILED_TERMINAL",
+        output: { reasonCode: outcome.reasonCode, issues: outcome.issues },
+        schemaValid: false,
+        latencyMs,
+        completedAt: new Date(),
+      })
+      .where(eq(practiceRuns.id, input.practiceRunId));
+
+    return { ok: false };
+  }
+
+  await db
+    .update(practiceRuns)
+    .set({
+      status: "SUCCEEDED",
+      output: {
+        result: outcome.result.output,
+        promptVersion: outcome.result.promptVersion,
+        costUsd: outcome.result.costUsd,
+        provider: provider.name,
+      },
+      schemaValid: true,
+      costUsd: outcome.result.costUsd.toFixed(6),
+      latencyMs,
+      completedAt: new Date(),
+    })
+    .where(eq(practiceRuns.id, input.practiceRunId));
 
   return { ok: true };
 }

@@ -12,6 +12,7 @@ export const QUEUE_NAMES = {
   agentRun: "agent-run",
   localRunnerExecution: "local-runner-execution",
   forwardSignalProcessing: "forward-signal-processing",
+  practiceRun: "practice-run",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -74,6 +75,14 @@ export const AgentRunJob = z.object({
   role: AgentRole,
 });
 export type AgentRunJob = z.infer<typeof AgentRunJob>;
+
+export const PracticeRunJob = z.object({
+  practiceRunId: z.string().uuid(),
+  benchmarkTaskId: z.string().uuid(),
+  promptId: z.string().uuid(),
+  role: AgentRole,
+});
+export type PracticeRunJob = z.infer<typeof PracticeRunJob>;
 
 /**
  * Separator for composite job ids. Deliberately NOT ":" — BullMQ reserves
