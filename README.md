@@ -549,7 +549,7 @@ Everything above was exercised against real infrastructure, not mocks:
 Postgres and Redis via Docker, an S3-compatible bucket, and a live Clerk
 instance.
 
-- 288 unit tests, 215 integration tests, 3 end-to-end tests
+- 288 unit tests, 215 integration tests, 18 end-to-end tests
 - The analytics chain was driven end to end — outbox row → relay → BullMQ →
   worker → Postgres — against a trade ledger whose metrics were hand-calculated
   first; every persisted value matched
@@ -602,6 +602,16 @@ Honest gaps in what is built, beyond the "not started" rows above:
   metric tables show gross/net and TradingView/local-runner/simulated/paper
   distinctions as plain column labels rather than the shared provenance
   component, so the labelling exists but isn't uniformly applied yet.
+- **Playwright e2e coverage is signed-out-only.** `e2e/auth-boundary.spec.ts`
+  asserts every one of the app's 16 protected routes correctly redirects an
+  anonymous visitor to sign-in and leaks no data first — real, but it never
+  exercises an authenticated flow (create a campaign, run a backtest, review
+  a decision). Authenticated e2e needs a dedicated Clerk test user (Clerk's
+  own `@clerk/testing` Playwright helpers are the supported way to sign one
+  in without a UI flake) and either a publicly reachable
+  `CLERK_WEBHOOK_SIGNING_SECRET` endpoint (ADR 0013) or an equivalent direct
+  DB seed to link that user's organisation — neither is configured in this
+  environment, so this wasn't built speculatively untested.
 - **The local runner executes SDL expressions, not generated Pine source**,
   and only a constrained, entirely stateless grammar of them (eight `ta.*`
   functions including `highest`/`lowest`/`atr`, historical `[n]` offsets,
