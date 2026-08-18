@@ -621,10 +621,16 @@ Honest gaps in what is built, beyond the "not started" rows above:
   stops, no non-resetting drawdown halts). `RunnerCapabilities` states the
   limits; anything outside them fails at `compile()` rather than running
   silently wrong. See [ADR 0005](docs/adr/0005-local-pine-runner.md).
-- **There is no dataset ingestion API.** `dataset_versions` exists and one
-  golden fixture is seeded for tests, but uploading real OHLCV data has no
-  route yet — a `LOCAL_RUNNER` backtest run can only reference a dataset
-  that was inserted directly.
+- **Dataset ingestion is a manual script, not a self-serve upload API.**
+  `pnpm --filter @arf-os/api ingest-ohlcv <organisationId> <symbol> <timeframe> --from=<ISO> --to=<ISO>`
+  pulls real historical bars from Coinbase Exchange's public REST API and
+  stores them as a `dataset_versions` row — see
+  [ADR 0014](docs/adr/0014-real-ohlcv-ingestion.md) (Binance was the first
+  choice but is geo-blocked from this deployment's network). Crypto
+  (Coinbase-listed) symbols only, `1m/5m/15m/1h/6h/1d` timeframes only;
+  forex/commodity strategies still need TradingView verification, not a
+  local dataset. There is still no browser-based upload route for
+  arbitrary CSVs.
 
 ---
 

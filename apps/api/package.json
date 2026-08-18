@@ -12,7 +12,8 @@
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "reap-uploads": "tsx src/scripts/reap-abandoned-uploads.ts",
-    "health-sweep": "tsx src/scripts/sweep-health-snapshots.ts"
+    "health-sweep": "tsx src/scripts/sweep-health-snapshots.ts",
+    "ingest-ohlcv": "tsx src/scripts/ingest-ohlcv.ts"
   },
   "dependencies": {
     "@arf-os/agent-runtime": "workspace:*",

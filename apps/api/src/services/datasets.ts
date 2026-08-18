@@ -7,6 +7,39 @@ import { parseOhlcvCsv } from "@arf-os/pine";
 import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
 import { buildDatasetKey, putObject } from "./object-store.js";
 
+/**
+ * Looks up a `dataset_versions` row that already covers the exact same
+ * symbol/timeframe/date-range for this organisation, so a re-run of the
+ * same ingest command (e.g. `ingest-ohlcv.ts`) skips re-inserting an
+ * identical immutable dataset version rather than accumulating duplicates.
+ * A different date range for the same symbol/timeframe is *not* a match —
+ * that's a genuinely different dataset and gets its own version.
+ */
+export async function findMatchingDatasetVersion(
+  db: Database,
+  organisationId: string,
+  symbol: string,
+  timeframe: string,
+  fromTs: Date,
+  toTs: Date,
+): Promise<{ datasetVersionId: string } | undefined> {
+  const [row] = await db
+    .select({ id: datasetVersions.id })
+    .from(datasetVersions)
+    .where(
+      and(
+        eq(datasetVersions.organisationId, organisationId),
+        eq(datasetVersions.symbol, symbol),
+        eq(datasetVersions.timeframe, timeframe),
+        eq(datasetVersions.fromTs, fromTs),
+        eq(datasetVersions.toTs, toTs),
+      ),
+    )
+    .limit(1);
+
+  return row ? { datasetVersionId: row.id } : undefined;
+}
+
 export interface CreateDatasetVersionInput {
   organisationId: string;
   symbol: string;

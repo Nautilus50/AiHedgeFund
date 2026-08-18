@@ -10,7 +10,7 @@ import {
   truncateAll,
   type Database,
 } from "@arf-os/db";
-import { listDatasetVersions } from "./datasets.js";
+import { findMatchingDatasetVersion, listDatasetVersions } from "./datasets.js";
 
 const available = await isTestDatabaseAvailable();
 
@@ -95,5 +95,82 @@ describe.skipIf(!available)("listDatasetVersions (integration)", () => {
     const org = await seedOrganisation(db);
     const result = await listDatasetVersions(db, org.organisationId, { cursor: "not-a-real-cursor" });
     expect(result).toEqual({ ok: false, reasonCode: "INVALID_CURSOR" });
+  });
+});
+
+describe.skipIf(!available)("findMatchingDatasetVersion (integration)", () => {
+  let db: Database;
+
+  beforeAll(() => {
+    db = createTestDatabase();
+  });
+
+  afterAll(async () => {
+    await closeDatabase(db);
+  });
+
+  beforeEach(async () => {
+    await truncateAll(db);
+  });
+
+  const FROM = new Date("2024-01-01T00:00:00Z");
+  const TO = new Date("2024-01-02T00:00:00Z");
+
+  async function seed(organisationId: string, overrides: Partial<{ symbol: string; timeframe: string; fromTs: Date; toTs: Date }> = {}) {
+    const artefactId = generateId<string>();
+    const datasetVersionId = generateId<string>();
+    await db.insert(artefacts).values({
+      id: artefactId,
+      organisationId,
+      objectKey: `test/${datasetVersionId}.csv`,
+      contentType: "text/csv",
+      sizeBytes: 10,
+      checksumSha256: "deadbeef",
+      kind: "ohlcv_dataset",
+    });
+    await db.insert(datasetVersions).values({
+      id: datasetVersionId,
+      organisationId,
+      symbol: overrides.symbol ?? "BTCUSDT",
+      timeframe: overrides.timeframe ?? "1h",
+      fromTs: overrides.fromTs ?? FROM,
+      toTs: overrides.toTs ?? TO,
+      barCount: 24,
+      checksumSha256: "deadbeef",
+      artefactId,
+    });
+    return datasetVersionId;
+  }
+
+  it("finds an existing dataset version with the exact same symbol/timeframe/range", async () => {
+    const org = await seedOrganisation(db);
+    const existingId = await seed(org.organisationId);
+
+    const match = await findMatchingDatasetVersion(db, org.organisationId, "BTCUSDT", "1h", FROM, TO);
+    expect(match).toEqual({ datasetVersionId: existingId });
+  });
+
+  it("does not match a different date range for the same symbol/timeframe", async () => {
+    const org = await seedOrganisation(db);
+    await seed(org.organisationId);
+
+    const match = await findMatchingDatasetVersion(
+      db,
+      org.organisationId,
+      "BTCUSDT",
+      "1h",
+      new Date("2024-02-01T00:00:00Z"),
+      new Date("2024-02-02T00:00:00Z"),
+    );
+    expect(match).toBeUndefined();
+  });
+
+  it("does not match another organisation's identical dataset", async () => {
+    const orgA = await seedOrganisation(db, { slug: "match-org-a" });
+    const orgB = await seedOrganisation(db, { slug: "match-org-b" });
+    await seed(orgA.organisationId);
+
+    const match = await findMatchingDatasetVersion(db, orgB.organisationId, "BTCUSDT", "1h", FROM, TO);
+    expect(match).toBeUndefined();
   });
 });
