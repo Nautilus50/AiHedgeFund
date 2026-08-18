@@ -79,11 +79,7 @@ export function LiveRunUpdates({ backtestRunId }: { backtestRunId: string }) {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       source?.close();
     };
-    // `call` is deliberately omitted: it's a fresh function identity every
-    // render (`useApiClient` isn't memoized), so depending on it would
-    // reconnect on every re-render rather than only when the watched run
-    // changes.
-  }, [backtestRunId, router]);
+  }, [backtestRunId, router, call]);
 
   return null;
 }
