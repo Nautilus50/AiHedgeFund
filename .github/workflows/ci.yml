@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Dummy but well-formed Clerk keys — nothing here talks to a real Clerk
+  # instance. next build prerenders every route, and a signed-out render of
+  # a protected page needs a syntactically valid publishable key to avoid
+  # throwing (CLAUDE.md 17: no anonymous read surface, so this is exercised
+  # on every route).
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
+  CLERK_SECRET_KEY: sk_test_dummy_key_for_ci_build_only
+  NEXT_PUBLIC_API_URL: http://localhost:4000
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: arf
+          POSTGRES_PASSWORD: arf
+          POSTGRES_DB: arf_os_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arf -d arf_os_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://arf:arf@localhost:5432/arf_os_test
+      TEST_DATABASE_URL: postgres://arf:arf@localhost:5432/arf_os_test
+      REDIS_URL: redis://localhost:6379
+      TEST_REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # db:migrate runs the migrator via tsx against source, but it still
+      # imports @arf-os/contracts through that package's built dist/ (its
+      # package.json "exports" point there) — so contracts and db need a
+      # real build first. turbo's build task depends on ^build, so filtering
+      # on @arf-os/db pulls contracts in ahead of it automatically.
+      - run: pnpm exec turbo run build --filter=@arf-os/db
+      - run: pnpm db:migrate
+
+      # --concurrency=1: every package's integration suite truncates the
+      # same test database (packages/db/src/testing.ts's truncateAll), so
+      # running them in parallel would wipe each other's fixtures mid-test
+      # (see turbo.json's comment on this same task).
+      - run: pnpm test:integration
