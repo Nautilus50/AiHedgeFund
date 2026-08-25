@@ -4,13 +4,18 @@ import { AlgoEvidence } from "../../../components/AlgoEvidence";
 import { AlgoSource } from "../../../components/AlgoSource";
 import { Badge } from "../../../components/Badge";
 import { Alert, Card, CardBody, CardHead, EmptyState, Timestamp } from "../../../components/primitives";
+import { apiFetchSafe } from "../../../lib/api";
 import { getAlgo, getAlgoSource } from "../../../lib/algo-library";
+import { PublishAlgoButton, RetireAlgoButton } from "./LifecycleActions";
 
 const STATUS_TONE = { DRAFT: "neutral", PUBLISHED: "ok", RETIRED: "warn" } as const;
 
+/** Mirrors PUBLISHING_ROLES in apps/api/src/routes/algo-library.ts. */
+const LIFECYCLE_ROLES = new Set(["OPERATOR", "ADMIN"]);
+
 export default async function AlgoDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const result = await getAlgo(slug);
+  const [result, meResult] = await Promise.all([getAlgo(slug), apiFetchSafe<{ role: string }>("/v1/me")]);
 
   if ("error" in result) {
     notFound();
@@ -20,6 +25,11 @@ export default async function AlgoDetailPage({ params }: { params: Promise<{ slu
   // Fetching the source is an audited read, so it happens only on this page,
   // where the operator came to get the code.
   const source = algo.currentRelease ? await getAlgoSource(slug) : null;
+
+  const canManage = !("error" in meResult) && LIFECYCLE_ROLES.has(meResult.data.role);
+  const hasRelease = Boolean(algo.currentRelease);
+  const hasEvidence = algo.snapshots.length > 0;
+  const canPublish = hasRelease && hasEvidence;
 
   return (
     <>
@@ -41,6 +51,37 @@ export default async function AlgoDetailPage({ params }: { params: Promise<{ slu
           </p>
         </div>
       </div>
+
+      {canManage && (
+        <Card>
+          <CardHead title="Library actions" />
+          <CardBody>
+            {algo.status === "PUBLISHED" ? (
+              <>
+                <p className="card-hint">
+                  Retiring hides this algo from the active library. Its releases and evidence stay readable — nothing
+                  is deleted.
+                </p>
+                <RetireAlgoButton algoId={algo.algoId} slug={slug} />
+              </>
+            ) : canPublish ? (
+              <>
+                {algo.status === "RETIRED" && (
+                  <p className="card-hint">This algo was retired. Publishing makes it active again.</p>
+                )}
+                <PublishAlgoButton algoId={algo.algoId} slug={slug} />
+              </>
+            ) : !hasRelease ? (
+              <p className="card-hint">Publish a release before this algo can go live.</p>
+            ) : (
+              <p className="card-hint">
+                Catalogue at least one evidence snapshot before publishing — an algo you cannot check does not get
+                published.
+              </p>
+            )}
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHead
