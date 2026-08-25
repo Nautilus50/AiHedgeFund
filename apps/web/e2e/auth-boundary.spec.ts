@@ -13,6 +13,8 @@ const PROTECTED_ROUTES = [
   { path: "/campaigns/new", name: "New campaign" },
   { path: `/campaigns/${NIL_ID}`, name: "Campaign detail" },
   { path: "/strategies", name: "Strategy Library" },
+  { path: "/algos", name: "Algo Library" },
+  { path: "/algos/momentum-btc", name: "Algo detail" },
   { path: "/strategies/import", name: "Import strategy" },
   { path: `/strategy-versions/${NIL_ID}`, name: "Strategy version detail" },
   { path: `/strategy-versions/${NIL_ID}/backtest-runs/new`, name: "New backtest run" },

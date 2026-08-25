@@ -203,6 +203,49 @@ return 409:
   "detail": "The actor who created this strategy version cannot approve it (CLAUDE.md 3.4)." }
 ```
 
+## Algo library
+
+Catalogue an algo, pin a release to a `PAPER_APPROVED` strategy version, record
+the evidence, and publish it (ADR 0015). All four require `OPERATOR` or `ADMIN`.
+
+```bash
+ALGO_ID=$(curl -s -X POST http://localhost:4000/v1/algos \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"slug":"momentum-btc","name":"Momentum BTC","tagline":"Trend continuation on BTC 1h.",
+       "marketCategory":"CRYPTO","symbol":"BTCUSD","timeframe":"60"}' | jq -r .algoId)
+
+RELEASE_ID=$(curl -s -X POST http://localhost:4000/v1/algos/$ALGO_ID/releases \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"strategyVersionId\":\"$VERSION_ID\",\"changelog\":\"First release.\"}" | jq -r .releaseId)
+
+curl -X POST http://localhost:4000/v1/algo-releases/$RELEASE_ID/stats \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"backtestRunId\":\"$RUN_ID\",\"scope\":\"OUT_OF_SAMPLE\"}"
+
+curl -X POST http://localhost:4000/v1/algos/$ALGO_ID/publish \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+A release from a version that has not reached `PAPER_APPROVED` is refused:
+
+```json
+{ "status": 422, "code": "NOT_PAPER_APPROVED",
+  "detail": "A release requires a PAPER_APPROVED strategy version (this one is PINE_DEVELOPMENT)." }
+```
+
+Reading the catalogue and the source. The source comes from the release's
+immutable Pine revision, and the read writes an `ALGO_SOURCE_READ` audit event:
+
+```bash
+curl "http://localhost:4000/v1/algos?status=PUBLISHED" -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/v1/algos/momentum-btc -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/v1/algos/momentum-btc/source -H "Authorization: Bearer $TOKEN"
+```
+
 ## Audit timeline
 
 ```bash

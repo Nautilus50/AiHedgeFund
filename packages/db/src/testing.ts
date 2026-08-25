@@ -99,21 +99,9 @@ export async function closeDatabase(db: Database): Promise<void> {
  * instead of inheriting whatever the previous test left behind.
  */
 const TABLES = [
-  "developer_payout_accruals",
-  "developer_submissions",
-  "customer_verified_results",
-  "checkout_sessions",
-  "billing_events",
-  "entitlements",
-  "subscription_items",
-  "subscriptions",
-  "customers",
-  "published_stat_snapshots",
-  "listing_prices",
+  "algo_stat_snapshots",
   "algo_releases",
-  "algo_listings",
-  "volume_discount_tiers",
-  "storefronts",
+  "algos",
   "sse_tickets",
   "practice_runs",
   "benchmark_tasks",

@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "listing_prices_one_active_per_listing_idx" ON "listing_prices" USING btree ("listing_id") WHERE "listing_prices"."active";

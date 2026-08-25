@@ -1,16 +1,6 @@
 import { generateId } from "@arf-os/contracts";
 import type { Database } from "./client.js";
-import {
-  campaigns,
-  memberships,
-  organisations,
-  pineRevisions,
-  storefronts,
-  strategies,
-  strategyVersions,
-  users,
-  volumeDiscountTiers,
-} from "./schema/index.js";
+import { campaigns, memberships, organisations, pineRevisions, strategies, strategyVersions, users } from "./schema/index.js";
 
 export interface SeededOrganisation {
   organisationId: string;
@@ -91,47 +81,10 @@ export async function seedStrategyVersion(
   return { strategyId, strategyVersionId };
 }
 
-export interface SeededStorefront {
-  storefrontId: string;
-  slug: string;
-}
-
-/** Creates the storefront that fronts an already-seeded organisation (ADR 0015). */
-export async function seedStorefront(
-  db: Database,
-  seed: SeededOrganisation,
-  options: { slug?: string; tiers?: { minAlgos: number; discountBps: number }[] } = {},
-): Promise<SeededStorefront> {
-  const storefrontId = generateId<string>();
-  const slug = options.slug ?? `shop-${storefrontId.slice(0, 8)}`;
-
-  await db.insert(storefronts).values({
-    id: storefrontId,
-    organisationId: seed.organisationId,
-    slug,
-    name: `${slug} storefront`,
-    tagline: "Integration test storefront",
-    supportEmail: `support@${slug}.test`,
-    defaultCurrency: "USD",
-  });
-
-  const tiers = options.tiers ?? [
-    { minAlgos: 2, discountBps: 1000 },
-    { minAlgos: 4, discountBps: 2000 },
-  ];
-  if (tiers.length > 0) {
-    await db.insert(volumeDiscountTiers).values(
-      tiers.map((tier) => ({ id: generateId<string>(), storefrontId, ...tier })),
-    );
-  }
-
-  return { storefrontId, slug };
-}
-
 /**
  * Attaches a Pine revision to a strategy version, which is what a release
  * ultimately delivers. Source is deliberately recognisable so a test can assert
- * the customer received exactly this text.
+ * that exactly this text came back out of the library.
  */
 export async function seedPineRevision(
   db: Database,

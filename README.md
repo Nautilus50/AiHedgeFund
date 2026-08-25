@@ -310,6 +310,14 @@ Displays the campaign objective, universe, constraints, acceptance policy, agent
 
 A searchable registry of every strategy and version, including status, market, timeframe, family, evidence score, drawdown, profit factor, robustness grade, forward-test status, similarity, and lineage.
 
+### Algo Library
+
+The catalogue of finished work: the algos that came through the lifecycle and are worth running. Each entry pins a
+current release to one immutable strategy version, shows evidence recomputed from that version's own trade ledger
+(labelled by scope — in-sample, out-of-sample, forward paper — and never merged into one series), and hands back the
+Pine source with the hash it was tested at. Private to the organisation; reading source is audited. See
+[ADR 0015](./docs/adr/0015-algo-library.md).
+
 ### Strategy Detail
 
 The canonical research page for a strategy version. It contains:
@@ -467,6 +475,7 @@ built and how to run it.
 | [0011](./docs/adr/0011-portfolio-research-first-slice.md) | Portfolio Research first slice — trade-close-event correlation (Spearman, not Pearson), exposure overlap, market/turnover concentration |
 | [0012](./docs/adr/0012-forward-drift-report-and-health-snapshots.md) | Forward-test drift report (reuses Validation Lab's `computeDegradation`, not a new statistical method) and persisted health snapshots (operator/platform-scheduled sweep script, not a BullMQ repeatable job) |
 | [0013](./docs/adr/0013-organisation-provisioning-webhook.md) | Automatic organisation provisioning via a single Clerk `organizationMembership.created` webhook — no new dependency at the call site (`@clerk/backend`'s own `verifyWebhook`), founding member always gets `ADMIN` |
+| [0015](./docs/adr/0015-algo-library.md) | Algo library — private per-organisation catalogue of finished algos, releases pinned to PAPER_APPROVED strategy versions, evidence recomputed from the trade ledger, audited source reads |
 
 ### Quick start
 
