@@ -23,6 +23,17 @@ export type ParityReportId = string & { readonly __brand: "ParityReportId" };
 export type CommitteeDecisionId = string & { readonly __brand: "CommitteeDecisionId" };
 export type AuditEventId = string & { readonly __brand: "AuditEventId" };
 export type HandoffId = string & { readonly __brand: "HandoffId" };
+export type StorefrontId = string & { readonly __brand: "StorefrontId" };
+export type AlgoListingId = string & { readonly __brand: "AlgoListingId" };
+export type AlgoReleaseId = string & { readonly __brand: "AlgoReleaseId" };
+export type ListingPriceId = string & { readonly __brand: "ListingPriceId" };
+export type StatSnapshotId = string & { readonly __brand: "StatSnapshotId" };
+export type CustomerId = string & { readonly __brand: "CustomerId" };
+export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
+export type EntitlementId = string & { readonly __brand: "EntitlementId" };
+export type BillingEventId = string & { readonly __brand: "BillingEventId" };
+export type VerifiedResultId = string & { readonly __brand: "VerifiedResultId" };
+export type DeveloperSubmissionId = string & { readonly __brand: "DeveloperSubmissionId" };
 export type IdempotencyKey = string & { readonly __brand: "IdempotencyKey" };
 
 /** Generates a new UUIDv7-compatible identifier, branded to the requested ID type. */

@@ -1,6 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { resolveAuthContext, verifyClerkToken, type AuthContext } from "@arf-os/auth";
+import {
+  resolveAuthContext,
+  resolveCustomerContext,
+  verifyClerkToken,
+  type AuthContext,
+  type CustomerContext,
+} from "@arf-os/auth";
 import type { Database } from "@arf-os/db";
 import { memberships, organisations, users } from "@arf-os/db";
 
@@ -10,6 +16,13 @@ declare module "fastify" {
     auth?: AuthContext;
     /** Returns the resolved AuthContext, or throws a 401-mapped error if the request is unauthenticated. */
     requireAuth(): AuthContext;
+    /**
+     * Set whenever the bearer token resolves to a known user, with or without
+     * an organisation. Storefront buyers authenticate here (ADR 0015).
+     */
+    customer?: CustomerContext;
+    /** Returns the resolved CustomerContext, or throws a 401-mapped error. */
+    requireCustomer(): CustomerContext;
   }
 }
 
@@ -28,6 +41,7 @@ export interface AuthPluginOptions {
  */
 export async function registerAuth(app: FastifyInstance, options: AuthPluginOptions): Promise<void> {
   app.decorateRequest("auth", undefined);
+  app.decorateRequest("customer", undefined);
 
   app.decorateRequest("requireAuth", function requireAuth(this: { auth?: AuthContext }): AuthContext {
     if (!this.auth) {
@@ -36,6 +50,15 @@ export async function registerAuth(app: FastifyInstance, options: AuthPluginOpti
       throw error;
     }
     return this.auth;
+  });
+
+  app.decorateRequest("requireCustomer", function requireCustomer(this: { customer?: CustomerContext }): CustomerContext {
+    if (!this.customer) {
+      const error = new Error("Authentication required.");
+      error.name = "UnauthorizedError";
+      throw error;
+    }
+    return this.customer;
   });
 
   app.addHook("onRequest", async (request) => {
@@ -76,6 +99,14 @@ export async function registerAuth(app: FastifyInstance, options: AuthPluginOpti
               .limit(1)
           )[0]
         : undefined;
+
+    // Buyer identity is resolved first and independently: a personal session
+    // has no org claim at all, and an org-scoped researcher session must not
+    // gain storefront powers from its research role (or vice versa).
+    const customerResult = resolveCustomerContext(claims, userRow);
+    if (customerResult.ok) {
+      request.customer = customerResult.context;
+    }
 
     const result = resolveAuthContext(claims, userRow, organisationRow, membershipRow);
     if (result.ok) {

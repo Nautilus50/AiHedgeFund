@@ -8,6 +8,16 @@ export interface AuthContext {
   role: OrganisationRole;
 }
 
+/**
+ * A storefront buyer. Deliberately NOT an AuthContext: a customer has no
+ * organisation and no research role, and no code path may treat one as the
+ * other (ADR 0015). Anything organisation-scoped must reject a CustomerContext
+ * by construction — it simply has no organisationId to check.
+ */
+export interface CustomerContext {
+  userId: string;
+}
+
 export type AuthRejectionReason =
   | "MISSING_TOKEN"
   | "INVALID_TOKEN"
@@ -21,5 +31,11 @@ export interface AuthRejection {
   reasonCode: AuthRejectionReason;
   message: string;
 }
+
+export type CustomerRejectionReason = "INVALID_TOKEN" | "UNKNOWN_USER";
+
+export type CustomerResult =
+  | { ok: true; context: CustomerContext }
+  | { ok: false; reasonCode: CustomerRejectionReason; message: string };
 
 export type AuthResult = { ok: true; context: AuthContext } | AuthRejection;

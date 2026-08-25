@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAuthContext } from "./context.js";
+import { resolveAuthContext, resolveCustomerContext } from "./context.js";
 
 const claims = { subject: "user_clerk123", clerkOrganisationId: "org_clerk456" };
 const userLookup = { id: "internal-user-1" };
@@ -45,5 +45,30 @@ describe("resolveAuthContext", () => {
     const wrongMembership = { ...membership, organisationId: "some-other-org" };
     const result = resolveAuthContext(claims, userLookup, organisationLookup, wrongMembership);
     expect(result).toMatchObject({ ok: false, reasonCode: "NOT_A_MEMBER_OF_ORGANISATION" });
+  });
+});
+
+describe("resolveCustomerContext", () => {
+  it("authenticates a personal (org-less) session", () => {
+    const result = resolveCustomerContext({ subject: "user_1" }, { id: "11111111-1111-4111-8111-111111111111" });
+    expect(result).toEqual({ ok: true, context: { userId: "11111111-1111-4111-8111-111111111111" } });
+  });
+
+  it("ignores the organisation claim entirely", () => {
+    const result = resolveCustomerContext(
+      { subject: "user_1", clerkOrganisationId: "org_1" },
+      { id: "11111111-1111-4111-8111-111111111111" },
+    );
+    expect(result.ok).toBe(true);
+    // A customer context carries no organisation or role — nothing downstream
+    // can mistake a buyer for a member of the operating organisation.
+    if (result.ok) {
+      expect(Object.keys(result.context)).toEqual(["userId"]);
+    }
+  });
+
+  it("rejects a subject with no user row", () => {
+    const result = resolveCustomerContext({ subject: "user_unknown" }, undefined);
+    expect(result).toMatchObject({ ok: false, reasonCode: "UNKNOWN_USER" });
   });
 });

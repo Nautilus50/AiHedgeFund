@@ -113,6 +113,20 @@
       "when": 1786989741437,
       "tag": "0015_breezy_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787633099796,
+      "tag": "0016_motionless_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787633112483,
+      "tag": "0017_lyrical_micromax",
+      "breakpoints": true
     }
   ]
 }

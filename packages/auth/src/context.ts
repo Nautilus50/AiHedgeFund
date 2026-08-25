@@ -1,5 +1,5 @@
 import type { OrganisationRole } from "@arf-os/contracts";
-import type { AuthResult } from "./types.js";
+import type { AuthResult, CustomerResult } from "./types.js";
 
 export interface ClerkClaims {
   /** Clerk user id (JWT `sub`). */
@@ -65,4 +65,25 @@ export function resolveAuthContext(
     ok: true,
     context: { userId: membership.userId, organisationId: membership.organisationId, role: membership.role },
   };
+}
+
+/**
+ * Pure decision for the storefront's buyer identity: a verified Clerk subject
+ * that maps to a known user. Unlike resolveAuthContext this deliberately does
+ * not look at `org_id` — a buyer signs in with a personal account, and a
+ * researcher's org-scoped token authenticates them here only as the person
+ * they are, never with their research role.
+ */
+export function resolveCustomerContext(
+  claims: ClerkClaims,
+  userLookup: { id: string } | undefined,
+): CustomerResult {
+  if (!userLookup) {
+    return {
+      ok: false,
+      reasonCode: "UNKNOWN_USER",
+      message: `No user is linked to Clerk subject ${claims.subject}.`,
+    };
+  }
+  return { ok: true, context: { userId: userLookup.id } };
 }

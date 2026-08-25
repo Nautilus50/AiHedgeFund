@@ -6,9 +6,12 @@ import { createDatabase } from "@arf-os/db";
 import { redactSseTicket, redactWebhookToken } from "./lib/log-redaction.js";
 import { buildProblemDetails } from "./lib/problem-details.js";
 import { registerAuth } from "./plugins/auth.js";
+import { registerBillingWebhook } from "./plugins/webhooks-billing.js";
 import { registerClerkWebhook } from "./plugins/webhooks-clerk.js";
 import { SseHub } from "./lib/sse-hub.js";
 import { createObjectStoreClient } from "./services/object-store.js";
+import { InMemoryBillingProvider } from "./services/storefront/in-memory-provider.js";
+import { StripeBillingProvider } from "./services/storefront/stripe-provider.js";
 import { registerRoutes } from "./routes/index.js";
 
 try {
@@ -54,6 +57,22 @@ async function buildServer() {
   // every other secret above, local dev boots fine without ever configuring
   // Clerk's webhook dashboard; the route just 404s until it's set (ADR 0013).
   await app.register(registerClerkWebhook, { db, signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET });
+
+  // Stripe when it is configured, the deterministic in-process provider when
+  // it is not, so local development can drive a full checkout without keys.
+  // A missing key in production surfaces as a boot-time refusal below rather
+  // than as a storefront that silently sells nothing.
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (process.env.NODE_ENV === "production" && !(stripeSecretKey && stripeWebhookSecret)) {
+    throw new Error("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required in production.");
+  }
+  const billing =
+    stripeSecretKey && stripeWebhookSecret
+      ? new StripeBillingProvider({ secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret })
+      : new InMemoryBillingProvider();
+
+  await app.register(registerBillingWebhook, { db, billing });
 
   // Registered after auth, so its onRequest hook runs second and can key on
   // request.auth.organisationId — every caller inside one org shares a
@@ -128,7 +147,7 @@ async function buildServer() {
     return { userId: auth.userId, organisationId: auth.organisationId, role: auth.role };
   });
 
-  registerRoutes(app, { db, s3, bucket, sseHub });
+  registerRoutes(app, { db, s3, bucket, sseHub, billing });
 
   return app;
 }
