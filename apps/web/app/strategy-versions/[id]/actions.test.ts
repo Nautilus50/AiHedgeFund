@@ -14,6 +14,7 @@ const { catalogueAlgoAction } = await import("./actions");
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
+const DEPLOYMENT_ID = "33333333-3333-4333-8333-333333333333";
 
 function form(overrides: Record<string, string> = {}): FormData {
   const data = new FormData();
@@ -27,7 +28,7 @@ function form(overrides: Record<string, string> = {}): FormData {
     timeframe: "60",
     changelog: "First release.",
     setupInstructions: "Paste into TradingView.",
-    backtestRunId: "",
+    evidenceSource: "",
     scope: "OUT_OF_SAMPLE",
     ...overrides,
   };
@@ -60,7 +61,7 @@ describe("catalogueAlgoAction", () => {
       .mockResolvedValueOnce({ snapshotId: "snapshot-1" })
       .mockResolvedValueOnce({ status: "PUBLISHED" });
 
-    await run(form({ backtestRunId: RUN_ID, publishNow: "on" }));
+    await run(form({ evidenceSource: `run:${RUN_ID}`, publishNow: "on" }));
 
     expect(apiFetch.mock.calls.map((call) => call[0])).toEqual([
       "/v1/algos",
@@ -71,6 +72,34 @@ describe("catalogueAlgoAction", () => {
 
     // The release is pinned to this version, not to whatever the form said.
     expect(JSON.parse(String(apiFetch.mock.calls[1]?.[1]?.body))).toMatchObject({ strategyVersionId: VERSION_ID });
+    // "run:<id>" decodes to a BACKTEST_RUN source with the chosen scope.
+    expect(JSON.parse(String(apiFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      kind: "BACKTEST_RUN",
+      backtestRunId: RUN_ID,
+      scope: "OUT_OF_SAMPLE",
+    });
+    expect(redirect).toHaveBeenCalledWith("/algos/momentum-btc");
+  });
+
+  it("publishes forward paper evidence when a deployment is chosen instead of a run", async () => {
+    apiFetch
+      .mockResolvedValueOnce({ algoId: "algo-1" })
+      .mockResolvedValueOnce({ releaseId: "release-1" })
+      .mockResolvedValueOnce({ snapshotId: "snapshot-1" });
+
+    await run(form({ evidenceSource: `deployment:${DEPLOYMENT_ID}` }));
+
+    expect(apiFetch.mock.calls.map((call) => call[0])).toEqual([
+      "/v1/algos",
+      "/v1/algos/algo-1/releases",
+      "/v1/algo-releases/release-1/stats",
+    ]);
+    // A forward deployment source carries no scope or backtestRunId — the
+    // API's discriminated union has no slot for either on this branch.
+    expect(JSON.parse(String(apiFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      kind: "FORWARD_DEPLOYMENT",
+      forwardDeploymentId: DEPLOYMENT_ID,
+    });
     expect(redirect).toHaveBeenCalledWith("/algos/momentum-btc");
   });
 
@@ -116,7 +145,7 @@ describe("catalogueAlgoAction", () => {
       .mockResolvedValueOnce({ releaseId: "release-1" })
       .mockRejectedValueOnce(new Error("That run belongs to a different strategy version than this release."));
 
-    const result = await run(form({ backtestRunId: RUN_ID }));
+    const result = await run(form({ evidenceSource: `run:${RUN_ID}` }));
 
     expect(String((result as { error: string }).error)).toContain("The release was published, but the evidence was not");
     expect(redirect).not.toHaveBeenCalled();
@@ -129,7 +158,7 @@ describe("catalogueAlgoAction", () => {
       .mockResolvedValueOnce({ snapshotId: "snapshot-1" })
       .mockRejectedValueOnce(new Error("Catalogue at least one evidence snapshot before publishing the algo."));
 
-    const result = await run(form({ backtestRunId: RUN_ID, publishNow: "on" }));
+    const result = await run(form({ evidenceSource: `run:${RUN_ID}`, publishNow: "on" }));
 
     expect(String((result as { error: string }).error)).toContain("the algo is still a draft");
     expect(redirect).not.toHaveBeenCalled();

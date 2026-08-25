@@ -139,7 +139,8 @@ export interface CatalogueFields {
   timeframe: string;
   changelog: string;
   setupInstructions: string;
-  backtestRunId: string;
+  /** Encoded by the form's evidence <select> as "run:<id>" or "deployment:<id>", or "" for none. */
+  evidenceSource: string;
   scope: string;
   publishNow: boolean;
 }
@@ -156,10 +157,27 @@ function readCatalogueFields(formData: FormData): CatalogueFields {
     timeframe: value("timeframe"),
     changelog: value("changelog"),
     setupInstructions: value("setupInstructions"),
-    backtestRunId: value("backtestRunId"),
+    evidenceSource: value("evidenceSource"),
     scope: value("scope"),
     publishNow: formData.get("publishNow") === "on",
   };
+}
+
+/**
+ * Splits the form's encoded evidence selection back into the discriminated
+ * shape the API's PublishStatsBody expects — the mislabelling a backtest
+ * scope on forward evidence (or vice versa) is unrepresentable there, and
+ * this is where that encoding is undone.
+ */
+function evidenceSourceBody(fields: CatalogueFields): unknown | null {
+  if (!fields.evidenceSource) return null;
+  if (fields.evidenceSource.startsWith("run:")) {
+    return { kind: "BACKTEST_RUN", backtestRunId: fields.evidenceSource.slice("run:".length), scope: fields.scope };
+  }
+  if (fields.evidenceSource.startsWith("deployment:")) {
+    return { kind: "FORWARD_DEPLOYMENT", forwardDeploymentId: fields.evidenceSource.slice("deployment:".length) };
+  }
+  return null;
 }
 
 function message(error: unknown, fallback: string): string {
@@ -241,11 +259,12 @@ export async function catalogueAlgoAction(
     return { error: `${madeAlgo}${message(error, "Could not publish a release for this version.")}` };
   }
 
-  if (fields.backtestRunId) {
+  const evidenceBody = evidenceSourceBody(fields);
+  if (evidenceBody) {
     try {
       await apiFetch(`/v1/algo-releases/${releaseId}/stats`, {
         method: "POST",
-        body: JSON.stringify({ backtestRunId: fields.backtestRunId, scope: fields.scope }),
+        body: JSON.stringify(evidenceBody),
       });
     } catch (error) {
       return {

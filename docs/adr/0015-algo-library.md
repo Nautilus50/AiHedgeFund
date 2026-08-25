@@ -35,11 +35,18 @@ did the research.
    new strategy version — algos inherit the immutability rule of CLAUDE.md 3.1 rather than working
    around it. Publishing a release supersedes the previous one in the same transaction, so there is
    never more than one current release.
-4. **Evidence snapshots** are derived from a `backtest_run` (and later a `forward_deployment`) by
-   recomputing metrics through `packages/metrics` from the stored trade ledger — never by copying a
-   runner-reported summary. Each snapshot records its scope (`IN_SAMPLE` / `OUT_OF_SAMPLE` /
-   `FORWARD_PAPER`), its source id, and the metric calculation version. The library may not display
-   a number that has no snapshot row, and never merges scopes into one series (CLAUDE.md 18.1).
+4. **Evidence snapshots** are derived from a `backtest_run` or a `forward_deployment` by recomputing
+   metrics through `packages/metrics` from the stored ledger — a run's trades directly, a
+   deployment's paper fills paired into trades with the same `pairPaperFillsIntoTrades` the drift
+   report uses — never by copying a runner- or paper-engine-reported summary. The evidence source is
+   a discriminated union rather than a free `scope` field next to a free `sourceId`: a backtest run
+   chooses between `IN_SAMPLE` and `OUT_OF_SAMPLE`, a forward deployment has no scope choice at all
+   and is always `FORWARD_PAPER`, so mislabelling a source's scope has no valid request shape to
+   begin with. Each snapshot records its scope, its source id, and the metric calculation version.
+   The library may not display a number that has no snapshot row, and never merges scopes into one
+   series (CLAUDE.md 18.1). A forward deployment must have actually run (`ACTIVE` / `PAUSED` /
+   `COMPLETED`, not `PLANNED` / `FAILED` / `CANCELLED`) and have at least one closed round trip;
+   republishing against the same deployment updates its snapshot in place as more trades close.
 5. **Promotion gates** live in application code: a release requires a `PAPER_APPROVED` strategy
    version — the state that required a committee decision the strategy's own author could not make —
    and an existing Pine revision. An algo becomes `PUBLISHED` only with a published release and at

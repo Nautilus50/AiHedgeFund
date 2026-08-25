@@ -161,6 +161,35 @@ export async function getForwardDeployment(db: Database, organisationId: string,
   return { ...row, newerApprovedVersionExists: newerVersion !== undefined };
 }
 
+/**
+ * Every forward deployment of one strategy version, newest first. Exists so a
+ * caller choosing a deployment (the Algo Library's evidence picker) can see
+ * what a version has actually run, without widening getForwardDeployment.
+ */
+export async function listForwardDeploymentsForVersion(
+  db: Database,
+  organisationId: string,
+  strategyVersionId: string,
+) {
+  return db
+    .select({
+      id: forwardDeployments.id,
+      symbol: forwardDeployments.symbol,
+      timeframe: forwardDeployments.timeframe,
+      state: forwardDeployments.state,
+      createdAt: forwardDeployments.createdAt,
+      activatedAt: forwardDeployments.activatedAt,
+    })
+    .from(forwardDeployments)
+    .where(
+      and(
+        eq(forwardDeployments.organisationId, organisationId),
+        eq(forwardDeployments.strategyVersionId, strategyVersionId),
+      ),
+    )
+    .orderBy(desc(forwardDeployments.createdAt));
+}
+
 export type DeploymentTransitionResult =
   | { ok: true }
   | { ok: false; reasonCode: "NOT_FOUND" | "INVALID_STATE"; message: string };

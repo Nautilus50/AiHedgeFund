@@ -7,9 +7,12 @@ import {
   closeDatabase,
   createTestDatabase,
   isTestDatabaseAvailable,
+  paperFills,
+  paperOrders,
   seedOrganisation,
   seedPineRevision,
   seedStrategyVersion,
+  signalEvents,
   trades,
   truncateAll,
   type Database,
@@ -17,7 +20,19 @@ import {
 import { generateId } from "@arf-os/contracts";
 import { getAlgoDetail, listAlgos } from "./catalogue.js";
 import { getAlgoSource } from "./delivery.js";
+import { createForwardDeployment } from "../forward-deployments.js";
 import { createAlgo, publishAlgo, publishRelease, publishStatSnapshot, retireAlgo } from "./publishing.js";
+
+function fillModel() {
+  return {
+    fillModelVersion: "1.0.0",
+    latencyModel: { type: "fixed_seconds" as const, seconds: 0 },
+    slippageModel: { type: "fixed_percent" as const, value: 0 },
+    commissionModel: { type: "percent" as const, value: 0 },
+    quantityModel: { type: "percent_of_equity" as const, percent: 10 },
+    stopTargetRule: { type: "external_alert_only" as const },
+  };
+}
 
 const available = await isTestDatabaseAvailable();
 
@@ -76,8 +91,7 @@ describe.skipIf(!available)("algo library (integration)", () => {
     const stats = await publishStatSnapshot(db, {
       releaseId: release.releaseId,
       organisationId: org.organisationId,
-      backtestRunId,
-      scope: "OUT_OF_SAMPLE",
+      source: { kind: "BACKTEST_RUN", backtestRunId, scope: "OUT_OF_SAMPLE" },
       actorUserId: org.userId,
     });
     if (!stats.ok) throw new Error(`stats not catalogued: ${stats.message}`);
@@ -238,8 +252,7 @@ describe.skipIf(!available)("algo library (integration)", () => {
     const outcome = await publishStatSnapshot(db, {
       releaseId,
       organisationId: org.organisationId,
-      backtestRunId: foreignRunId,
-      scope: "IN_SAMPLE",
+      source: { kind: "BACKTEST_RUN", backtestRunId: foreignRunId, scope: "IN_SAMPLE" },
       actorUserId: org.userId,
     });
 
@@ -346,6 +359,180 @@ describe.skipIf(!available)("algo library (integration)", () => {
     const detail = await getAlgoDetail(db, org.organisationId, "momentum-btc");
     expect(detail?.status).toBe("RETIRED");
     expect(detail?.snapshots).toHaveLength(1);
+  });
+
+  it("catalogues forward paper evidence recomputed from a deployment's fills", async () => {
+    const org = await uniqueOrg();
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedPineRevision(db, strategy.strategyVersionId);
+
+    const algo = await createAlgo(db, {
+      organisationId: org.organisationId,
+      slug: "forward-btc",
+      name: "Forward BTC",
+      tagline: "",
+      description: "",
+      riskNote: "",
+      marketCategory: "CRYPTO",
+      symbol: "BTCUSD",
+      timeframe: "60",
+    });
+    if (!algo.ok) throw new Error("algo not created");
+
+    const release = await publishRelease(db, {
+      algoId: algo.algoId,
+      organisationId: org.organisationId,
+      strategyVersionId: strategy.strategyVersionId,
+      changelog: "",
+      setupInstructions: "",
+      actorUserId: org.userId,
+    });
+    if (!release.ok) throw new Error("release not published");
+
+    const deployment = await createForwardDeployment(db, org.organisationId, org.userId, {
+      strategyVersionId: strategy.strategyVersionId,
+      symbol: "BTCUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!deployment.ok) throw new Error("deployment not created");
+
+    // One closed round trip: entry at 100, exit at 110, quantity 1 -> +10 net.
+    const entrySignal = generateId<string>();
+    const exitSignal = generateId<string>();
+    await db.insert(signalEvents).values([
+      { id: entrySignal, deploymentId: deployment.deploymentId, idempotencyKey: generateId<string>(), eventType: "ENTRY_LONG", rawPayload: {} },
+      { id: exitSignal, deploymentId: deployment.deploymentId, idempotencyKey: generateId<string>(), eventType: "EXIT_LONG", rawPayload: {} },
+    ]);
+    const entryOrder = generateId<string>();
+    const exitOrder = generateId<string>();
+    await db.insert(paperOrders).values([
+      { id: entryOrder, deploymentId: deployment.deploymentId, signalEventId: entrySignal, direction: "LONG", role: "ENTRY", requestedPrice: "100", quantity: "1" },
+      { id: exitOrder, deploymentId: deployment.deploymentId, signalEventId: exitSignal, direction: "LONG", role: "EXIT", requestedPrice: "110", quantity: "1" },
+    ]);
+    await db.insert(paperFills).values([
+      { id: generateId<string>(), paperOrderId: entryOrder, deploymentId: deployment.deploymentId, sequenceNumber: 1, filledPrice: "100", filledAt: new Date("2025-03-01T00:00:00.000Z") },
+      { id: generateId<string>(), paperOrderId: exitOrder, deploymentId: deployment.deploymentId, sequenceNumber: 2, filledPrice: "110", filledAt: new Date("2025-03-02T00:00:00.000Z") },
+    ]);
+
+    const stats = await publishStatSnapshot(db, {
+      releaseId: release.releaseId,
+      organisationId: org.organisationId,
+      source: { kind: "FORWARD_DEPLOYMENT", forwardDeploymentId: deployment.deploymentId },
+      actorUserId: org.userId,
+    });
+    expect(stats).toMatchObject({ ok: true });
+
+    const published = await publishAlgo(db, { algoId: algo.algoId, organisationId: org.organisationId, actorUserId: org.userId });
+    expect(published).toMatchObject({ ok: true });
+
+    const detail = await getAlgoDetail(db, org.organisationId, "forward-btc");
+    const snapshot = detail?.snapshots.find((entry) => entry.scope === "FORWARD_PAPER");
+    expect(snapshot).toBeDefined();
+    expect(snapshot?.sourceKind).toBe("FORWARD_DEPLOYMENT");
+    expect(snapshot?.sourceId).toBe(deployment.deploymentId);
+    // 10 net on 10,000 initial capital, recomputed from the paired fills.
+    expect(snapshot?.metrics.netProfitPct).toBeCloseTo(0.1);
+    expect(snapshot?.metrics.tradeCount).toBe(1);
+    // The headline picks forward paper over any backtest scope.
+    expect(detail?.headline?.scope).toBe("FORWARD_PAPER");
+  });
+
+  it("refuses forward evidence from a deployment running a different strategy version", async () => {
+    const { org, releaseId } = await catalogueAlgo();
+    const otherStrategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    const otherDeployment = await createForwardDeployment(db, org.organisationId, org.userId, {
+      strategyVersionId: otherStrategy.strategyVersionId,
+      symbol: "ETHUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!otherDeployment.ok) throw new Error("deployment not created");
+
+    const outcome = await publishStatSnapshot(db, {
+      releaseId,
+      organisationId: org.organisationId,
+      source: { kind: "FORWARD_DEPLOYMENT", forwardDeploymentId: otherDeployment.deploymentId },
+      actorUserId: org.userId,
+    });
+
+    expect(outcome).toMatchObject({ ok: false, reasonCode: "DEPLOYMENT_VERSION_MISMATCH" });
+  });
+
+  it("refuses forward evidence from a deployment with no closed trades", async () => {
+    const org = await uniqueOrg();
+    const strategy = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedPineRevision(db, strategy.strategyVersionId);
+
+    const algo = await createAlgo(db, {
+      organisationId: org.organisationId,
+      slug: "empty-forward",
+      name: "Empty forward",
+      tagline: "",
+      description: "",
+      riskNote: "",
+      marketCategory: "CRYPTO",
+      symbol: "BTCUSD",
+      timeframe: "60",
+    });
+    if (!algo.ok) throw new Error("algo not created");
+
+    const release = await publishRelease(db, {
+      algoId: algo.algoId,
+      organisationId: org.organisationId,
+      strategyVersionId: strategy.strategyVersionId,
+      changelog: "",
+      setupInstructions: "",
+      actorUserId: org.userId,
+    });
+    if (!release.ok) throw new Error("release not published");
+
+    const deployment = await createForwardDeployment(db, org.organisationId, org.userId, {
+      strategyVersionId: strategy.strategyVersionId,
+      symbol: "BTCUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!deployment.ok) throw new Error("deployment not created");
+
+    const outcome = await publishStatSnapshot(db, {
+      releaseId: release.releaseId,
+      organisationId: org.organisationId,
+      source: { kind: "FORWARD_DEPLOYMENT", forwardDeploymentId: deployment.deploymentId },
+      actorUserId: org.userId,
+    });
+
+    expect(outcome).toMatchObject({ ok: false, reasonCode: "NO_CLOSED_TRADES" });
+  });
+
+  it("never resolves another organisation's forward deployment as evidence", async () => {
+    const { org: victimOrg, releaseId } = await catalogueAlgo();
+    const attackerOrg = await uniqueOrg();
+    const attackerStrategy = await seedStrategyVersion(db, attackerOrg, { workflowState: "PAPER_APPROVED" });
+    const attackerDeployment = await createForwardDeployment(db, attackerOrg.organisationId, attackerOrg.userId, {
+      strategyVersionId: attackerStrategy.strategyVersionId,
+      symbol: "ETHUSD",
+      timeframe: "60",
+      initialCapital: 10000,
+      timestampToleranceSeconds: 300,
+      fillModel: fillModel(),
+    });
+    if (!attackerDeployment.ok) throw new Error("deployment not created");
+
+    const outcome = await publishStatSnapshot(db, {
+      releaseId,
+      organisationId: victimOrg.organisationId,
+      source: { kind: "FORWARD_DEPLOYMENT", forwardDeploymentId: attackerDeployment.deploymentId },
+      actorUserId: victimOrg.userId,
+    });
+
+    expect(outcome).toMatchObject({ ok: false, reasonCode: "DEPLOYMENT_NOT_FOUND" });
   });
 
   it("rejects a duplicate slug within one library", async () => {

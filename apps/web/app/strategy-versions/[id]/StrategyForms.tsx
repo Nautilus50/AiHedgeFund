@@ -285,6 +285,13 @@ export interface CatalogueRunOption {
   segmentKind: string;
 }
 
+export interface CatalogueDeploymentOption {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  state: string;
+}
+
 export interface CatalogueAlgoOption {
   slug: string;
   name: string;
@@ -298,6 +305,13 @@ const SCOPE_HINT: Record<(typeof SCOPES)[number], string> = {
   IN_SAMPLE: "The period this was developed on — the weakest claim available.",
 };
 
+/** Encodes the evidence <select>'s value as "run:<id>" or "deployment:<id>", so one control chooses both the kind and the source. */
+function parseEvidenceSource(value: string): { kind: "BACKTEST_RUN" | "FORWARD_DEPLOYMENT"; id: string } | null {
+  if (value.startsWith("run:")) return { kind: "BACKTEST_RUN", id: value.slice("run:".length) };
+  if (value.startsWith("deployment:")) return { kind: "FORWARD_DEPLOYMENT", id: value.slice("deployment:".length) };
+  return null;
+}
+
 /**
  * Catalogues an approved version as an algo (ADR 0015).
  *
@@ -310,30 +324,34 @@ export function CatalogueAlgoForm({
   strategyVersionId,
   algos,
   succeededRuns,
+  forwardDeployments,
   defaultSymbol,
   defaultTimeframe,
 }: {
   strategyVersionId: string;
   algos: CatalogueAlgoOption[];
   succeededRuns: CatalogueRunOption[];
+  forwardDeployments: CatalogueDeploymentOption[];
   defaultSymbol: string;
   defaultTimeframe: string;
 }) {
   const [state, formAction] = useFormState(catalogueAlgoAction.bind(null, strategyVersionId), initialState);
   const [existingSlug, setExistingSlug] = useState("");
-  const [backtestRunId, setBacktestRunId] = useState(succeededRuns[0]?.id ?? "");
+  const [evidenceSource, setEvidenceSource] = useState(succeededRuns[0] ? `run:${succeededRuns[0].id}` : "");
 
   const creatingNew = existingSlug === "";
-  const hasEvidence = backtestRunId !== "";
+  const evidence = parseEvidenceSource(evidenceSource);
+  const hasEvidence = evidence !== null;
+  const hasAnyEvidence = succeededRuns.length > 0 || forwardDeployments.length > 0;
 
   return (
     <form action={formAction}>
       <Feedback state={state} />
 
-      {succeededRuns.length === 0 && (
+      {!hasAnyEvidence && (
         <Alert tone="warn">
-          This version has no succeeded backtest run, so there is no evidence to catalogue with it. You can still create
-          the algo and its release, but it stays a draft until a snapshot exists.
+          This version has no succeeded backtest run and no forward deployment, so there is no evidence to catalogue with
+          it. You can still create the algo and its release, but it stays a draft until a snapshot exists.
         </Alert>
       )}
 
@@ -432,34 +450,58 @@ export function CatalogueAlgoForm({
 
       <div className="field-row">
         <div className="field">
-          <label htmlFor="backtestRunId">Evidence run</label>
+          <label htmlFor="evidenceSource">Evidence source</label>
           <select
-            id="backtestRunId"
-            name="backtestRunId"
-            value={backtestRunId}
-            onChange={(event) => setBacktestRunId(event.target.value)}
+            id="evidenceSource"
+            name="evidenceSource"
+            value={evidenceSource}
+            onChange={(event) => setEvidenceSource(event.target.value)}
           >
             <option value="">None for now</option>
-            {succeededRuns.map((run) => (
-              <option key={run.id} value={run.id}>
-                {run.segmentKind} · {run.symbol} / {run.timeframe} · {run.id.slice(0, 8)}
-              </option>
-            ))}
+            {succeededRuns.length > 0 && (
+              <optgroup label="Backtest runs">
+                {succeededRuns.map((run) => (
+                  <option key={run.id} value={`run:${run.id}`}>
+                    {run.segmentKind} · {run.symbol} / {run.timeframe} · {run.id.slice(0, 8)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {forwardDeployments.length > 0 && (
+              <optgroup label="Forward deployments">
+                {forwardDeployments.map((deployment) => (
+                  <option key={deployment.id} value={`deployment:${deployment.id}`}>
+                    {deployment.state} · {deployment.symbol} / {deployment.timeframe} · {deployment.id.slice(0, 8)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <span className="field-hint">
-            Metrics are recomputed from this run&rsquo;s trade ledger — nothing is copied from a runner summary.
+            {evidence?.kind === "FORWARD_DEPLOYMENT"
+              ? "Metrics are recomputed from this deployment's paired paper fills — real simulated execution, not a backtest."
+              : "Metrics are recomputed from the run's trade ledger — nothing is copied from a runner summary."}
           </span>
         </div>
         <div className="field">
           <label htmlFor="scope">Scope</label>
-          <select id="scope" name="scope" defaultValue="OUT_OF_SAMPLE" disabled={!hasEvidence}>
-            {SCOPES.map((scope) => (
-              <option key={scope} value={scope}>
-                {scope.replace(/_/g, " ").toLowerCase()}
-              </option>
-            ))}
-          </select>
-          <span className="field-hint">{SCOPE_HINT.OUT_OF_SAMPLE}</span>
+          {evidence?.kind === "FORWARD_DEPLOYMENT" ? (
+            <>
+              <input value="Forward paper" disabled />
+              <span className="field-hint">A forward deployment is always published as forward paper evidence.</span>
+            </>
+          ) : (
+            <>
+              <select id="scope" name="scope" defaultValue="OUT_OF_SAMPLE" disabled={!hasEvidence}>
+                {SCOPES.map((scope) => (
+                  <option key={scope} value={scope}>
+                    {scope.replace(/_/g, " ").toLowerCase()}
+                  </option>
+                ))}
+              </select>
+              <span className="field-hint">{SCOPE_HINT.OUT_OF_SAMPLE}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -471,7 +513,7 @@ export function CatalogueAlgoForm({
         <span className="field-hint">
           {hasEvidence
             ? "Publishing marks the algo ready to run. It stays a draft otherwise."
-            : "Requires an evidence run — an algo you cannot check does not get published."}
+            : "Requires an evidence source — an algo you cannot check does not get published."}
         </span>
       </div>
 

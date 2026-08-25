@@ -21,6 +21,9 @@ export interface AlgoLibraryRouteDeps {
 /** Cataloguing is an operator action; it is separate from doing the research. */
 const PUBLISHING_ROLES = ["OPERATOR", "ADMIN"] as const;
 
+/** Reasons that mean "you cannot see that", as opposed to "that will not do". */
+const NOT_FOUND_REASONS = new Set(["RELEASE_NOT_FOUND", "RUN_NOT_FOUND", "DEPLOYMENT_NOT_FOUND"]);
+
 const AlgoQuery = z.object({
   status: z.enum(["DRAFT", "PUBLISHED", "RETIRED"]).optional(),
   marketCategory: z.enum(["CRYPTO", "INDEX_FUTURES", "FX", "COMMODITIES", "EQUITIES"]).optional(),
@@ -49,10 +52,22 @@ const PublishReleaseBody = z.object({
   setupInstructions: z.string().max(20_000).default(""),
 });
 
-const PublishStatsBody = z.object({
-  backtestRunId: z.string().uuid(),
-  scope: z.enum(["IN_SAMPLE", "OUT_OF_SAMPLE", "FORWARD_PAPER"]),
-});
+/**
+ * Scope lives inside each branch, not beside them: a backtest cannot be
+ * submitted as FORWARD_PAPER, and a forward deployment carries no scope choice
+ * at all. The mislabelling has no valid request shape.
+ */
+const PublishStatsBody = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("BACKTEST_RUN"),
+    backtestRunId: z.string().uuid(),
+    scope: z.enum(["IN_SAMPLE", "OUT_OF_SAMPLE"]),
+  }),
+  z.object({
+    kind: z.literal("FORWARD_DEPLOYMENT"),
+    forwardDeploymentId: z.string().uuid(),
+  }),
+]);
 
 /**
  * Algo library routes (ADR 0015). Organisation-scoped throughout: every handler
@@ -237,11 +252,11 @@ export function registerAlgoLibraryRoutes(app: FastifyInstance, deps: AlgoLibrar
       organisationId: auth.organisationId,
       actorUserId: auth.userId,
       traceId: request.id,
-      ...parsed.data,
+      source: parsed.data,
     });
 
     if (!outcome.ok) {
-      const status = outcome.reasonCode === "RELEASE_NOT_FOUND" ? 404 : 422;
+      const status = NOT_FOUND_REASONS.has(outcome.reasonCode) ? 404 : 422;
       sendProblem(reply, {
         status,
         title: status === 404 ? "Not Found" : "Evidence rejected",

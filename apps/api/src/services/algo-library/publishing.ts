@@ -2,10 +2,23 @@ import { and, asc, desc, eq, max } from "drizzle-orm";
 import { generateId, AlgoMetrics } from "@arf-os/contracts";
 import type { MarketCategory, StatScope } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
-import { algoReleases, algoStatSnapshots, algos, auditEvents, backtestRuns, pineRevisions, strategyVersions, trades } from "@arf-os/db";
+import {
+  algoReleases,
+  algoStatSnapshots,
+  algos,
+  auditEvents,
+  backtestRuns,
+  forwardDeployments,
+  paperFills,
+  paperOrders,
+  pineRevisions,
+  strategyVersions,
+  trades,
+} from "@arf-os/db";
 import {
   calculateCoreMetrics,
   computeDrawdownCurve,
+  pairPaperFillsIntoTrades,
   reconstructEquityCurve,
   METRICS_CALCULATION_VERSION,
 } from "@arf-os/metrics";
@@ -183,18 +196,180 @@ export async function publishRelease(
   return { ok: true, releaseId, releaseNumber };
 }
 
+/**
+ * Where a snapshot's numbers come from. Scope travels *inside* the source
+ * rather than beside it, so a backtest can never be labelled FORWARD_PAPER and
+ * a forward deployment can never be labelled as a backtest — the mislabelling
+ * is unrepresentable rather than merely validated against.
+ */
+export type EvidenceSourceInput =
+  | { kind: "BACKTEST_RUN"; backtestRunId: string; scope: "IN_SAMPLE" | "OUT_OF_SAMPLE" }
+  | { kind: "FORWARD_DEPLOYMENT"; forwardDeploymentId: string };
+
 export interface PublishStatsInput {
   releaseId: string;
   organisationId: string;
-  backtestRunId: string;
-  scope: StatScope;
+  source: EvidenceSourceInput;
   actorUserId: string;
   traceId?: string;
 }
 
+/** A resolved ledger, ready to be turned into a snapshot. */
+interface ResolvedEvidence {
+  sourceKind: "BACKTEST_RUN" | "FORWARD_DEPLOYMENT";
+  sourceId: string;
+  scope: StatScope;
+  trades: MetricsTrade[];
+  initialCapital: string;
+  periodStart: Date;
+  periodEnd: Date;
+}
+
+/** A forward deployment must have actually run. PLANNED has no fills; FAILED and CANCELLED are not results. */
+const PUBLISHABLE_DEPLOYMENT_STATES = new Set(["ACTIVE", "PAUSED", "COMPLETED"]);
+
+async function resolveBacktestEvidence(
+  db: Database,
+  source: Extract<EvidenceSourceInput, { kind: "BACKTEST_RUN" }>,
+  releaseStrategyVersionId: string,
+): Promise<ResolvedEvidence | PublishFailure> {
+  const [run] = await db.select().from(backtestRuns).where(eq(backtestRuns.id, source.backtestRunId)).limit(1);
+
+  if (!run) {
+    return { ok: false, reasonCode: "RUN_NOT_FOUND", message: "No such backtest run." };
+  }
+
+  if (run.strategyVersionId !== releaseStrategyVersionId) {
+    return {
+      ok: false,
+      reasonCode: "RUN_VERSION_MISMATCH",
+      message: "That run belongs to a different strategy version than this release.",
+    };
+  }
+
+  if (run.status !== "SUCCEEDED") {
+    return { ok: false, reasonCode: "RUN_NOT_SUCCEEDED", message: `Run status is ${run.status}.` };
+  }
+
+  const tradeRows = await db
+    .select()
+    .from(trades)
+    .where(eq(trades.backtestRunId, source.backtestRunId))
+    .orderBy(asc(trades.sequenceNumber));
+
+  return {
+    sourceKind: "BACKTEST_RUN",
+    sourceId: source.backtestRunId,
+    scope: source.scope,
+    trades: tradeRows.map((row) => ({
+      tradeNumber: row.sequenceNumber,
+      direction: row.direction,
+      entryTime: row.entryTime.toISOString(),
+      exitTime: row.exitTime?.toISOString(),
+      netPnl: row.netPnl === null ? undefined : Number(row.netPnl),
+      isOpen: row.exitTime === null,
+    })),
+    initialCapital: run.initialCapital,
+    // The run's own window, not the span of its trades: a run that traded for
+    // one week of a six-month window tested six months.
+    periodStart: run.fromTs,
+    periodEnd: run.toTs,
+  };
+}
+
+async function resolveForwardEvidence(
+  db: Database,
+  source: Extract<EvidenceSourceInput, { kind: "FORWARD_DEPLOYMENT" }>,
+  organisationId: string,
+  releaseStrategyVersionId: string,
+): Promise<ResolvedEvidence | PublishFailure> {
+  const [deployment] = await db
+    .select({
+      id: forwardDeployments.id,
+      strategyVersionId: forwardDeployments.strategyVersionId,
+      initialCapital: forwardDeployments.initialCapital,
+      state: forwardDeployments.state,
+      activatedAt: forwardDeployments.activatedAt,
+      createdAt: forwardDeployments.createdAt,
+    })
+    .from(forwardDeployments)
+    // Ownership is part of the lookup, as everywhere else in this domain.
+    .where(
+      and(eq(forwardDeployments.id, source.forwardDeploymentId), eq(forwardDeployments.organisationId, organisationId)),
+    )
+    .limit(1);
+
+  if (!deployment) {
+    return { ok: false, reasonCode: "DEPLOYMENT_NOT_FOUND", message: "No such forward deployment." };
+  }
+
+  if (deployment.strategyVersionId !== releaseStrategyVersionId) {
+    return {
+      ok: false,
+      reasonCode: "DEPLOYMENT_VERSION_MISMATCH",
+      message: "That deployment runs a different strategy version than this release.",
+    };
+  }
+
+  if (!PUBLISHABLE_DEPLOYMENT_STATES.has(deployment.state)) {
+    return {
+      ok: false,
+      reasonCode: "DEPLOYMENT_NOT_PUBLISHABLE",
+      message: `A ${deployment.state} deployment has no result to publish.`,
+    };
+  }
+
+  const fillRows = await db
+    .select({
+      sequenceNumber: paperFills.sequenceNumber,
+      role: paperOrders.role,
+      direction: paperOrders.direction,
+      quantity: paperOrders.quantity,
+      filledPrice: paperFills.filledPrice,
+      fees: paperFills.fees,
+      filledAt: paperFills.filledAt,
+    })
+    .from(paperFills)
+    .innerJoin(paperOrders, eq(paperOrders.id, paperFills.paperOrderId))
+    .where(eq(paperFills.deploymentId, source.forwardDeploymentId))
+    .orderBy(asc(paperFills.sequenceNumber));
+
+  // Same pairing the drift report and the forward worker use — paper fills
+  // become the same MetricsTrade shape a backtest ledger does, so both kinds
+  // of evidence go through one metric implementation.
+  const forwardTrades = pairPaperFillsIntoTrades(
+    fillRows.map((row) => ({
+      sequenceNumber: row.sequenceNumber,
+      role: row.role as "ENTRY" | "EXIT",
+      direction: row.direction as "LONG" | "SHORT",
+      quantity: row.quantity,
+      filledPrice: row.filledPrice,
+      fees: row.fees,
+      filledAt: row.filledAt,
+    })),
+  );
+
+  // A deployment has no declared window the way a backtest run does, so the
+  // period is what it actually traded: activation (or creation) to the last
+  // fill. An ACTIVE deployment's snapshot is therefore explicitly a
+  // point-in-time claim, not a running total.
+  const lastFilledAt = fillRows.at(-1)?.filledAt;
+
+  return {
+    sourceKind: "FORWARD_DEPLOYMENT",
+    sourceId: source.forwardDeploymentId,
+    scope: "FORWARD_PAPER",
+    trades: forwardTrades,
+    initialCapital: deployment.initialCapital,
+    periodStart: deployment.activatedAt ?? deployment.createdAt,
+    periodEnd: lastFilledAt ?? deployment.activatedAt ?? deployment.createdAt,
+  };
+}
+
 /**
- * Builds a catalogued snapshot by recomputing metrics from the stored trade
- * ledger (CLAUDE.md 14 — independent calculation). Nothing here reads a
+ * Builds a catalogued snapshot by recomputing metrics from the stored ledger —
+ * a backtest run's trades, or a forward deployment's paper fills paired into
+ * trades (CLAUDE.md 14 — independent calculation). Nothing here reads a
  * runner-reported summary, so a library number cannot be better than the trades
  * that produced it.
  */
@@ -217,50 +392,26 @@ export async function publishStatSnapshot(
     return { ok: false, reasonCode: "RELEASE_NOT_FOUND", message: "No such release." };
   }
 
-  const [run] = await db.select().from(backtestRuns).where(eq(backtestRuns.id, input.backtestRunId)).limit(1);
+  const resolved =
+    input.source.kind === "BACKTEST_RUN"
+      ? await resolveBacktestEvidence(db, input.source, release.strategyVersionId)
+      : await resolveForwardEvidence(db, input.source, input.organisationId, release.strategyVersionId);
 
-  if (!run) {
-    return { ok: false, reasonCode: "RUN_NOT_FOUND", message: "No such backtest run." };
+  if ("ok" in resolved) return resolved;
+
+  const core = calculateCoreMetrics(resolved.trades);
+
+  if (core.closedTradeCount === 0) {
+    // An open position is not a result. Metrics computed from no closed trade
+    // would be a row of zeroes presented as a track record.
+    return { ok: false, reasonCode: "NO_CLOSED_TRADES", message: "There are no closed trades to publish." };
   }
-
-  if (run.strategyVersionId !== release.strategyVersionId) {
-    return {
-      ok: false,
-      reasonCode: "RUN_VERSION_MISMATCH",
-      message: "That run belongs to a different strategy version than this release.",
-    };
-  }
-
-  if (run.status !== "SUCCEEDED") {
-    return { ok: false, reasonCode: "RUN_NOT_SUCCEEDED", message: `Run status is ${run.status}.` };
-  }
-
-  const tradeRows = await db
-    .select()
-    .from(trades)
-    .where(eq(trades.backtestRunId, input.backtestRunId))
-    .orderBy(asc(trades.sequenceNumber));
-
-  if (tradeRows.length === 0) {
-    return { ok: false, reasonCode: "NO_TRADES", message: "A run with no trades has nothing to catalogue." };
-  }
-
-  const metricsTrades: MetricsTrade[] = tradeRows.map((row) => ({
-    tradeNumber: row.sequenceNumber,
-    direction: row.direction,
-    entryTime: row.entryTime.toISOString(),
-    exitTime: row.exitTime?.toISOString(),
-    netPnl: row.netPnl === null ? undefined : Number(row.netPnl),
-    isOpen: row.exitTime === null,
-  }));
-
-  const core = calculateCoreMetrics(metricsTrades);
 
   // The catalogued curve is reconstructed from the ledger, not read from the
-  // stored equity_points a runner produced — same rule as everywhere else in
-  // packages/metrics: the trades are the evidence.
-  const initialCapital = Number(run.initialCapital);
-  const equityCurve = reconstructEquityCurve(metricsTrades, run.initialCapital);
+  // stored equity points a runner or the paper engine produced — same rule as
+  // everywhere else in packages/metrics: the trades are the evidence.
+  const initialCapital = Number(resolved.initialCapital);
+  const equityCurve = reconstructEquityCurve(resolved.trades, resolved.initialCapital);
   const drawdown = computeDrawdownCurve(equityCurve);
   const netProfit = Number(core.netProfit);
 
@@ -271,10 +422,7 @@ export async function publishStatSnapshot(
     winRatePct: core.winRatePct,
     tradeCount: core.closedTradeCount,
     sharpe: null,
-    averageTradePct:
-      core.closedTradeCount === 0 || initialCapital === 0
-        ? null
-        : (netProfit / core.closedTradeCount / initialCapital) * 100,
+    averageTradePct: initialCapital === 0 ? null : (netProfit / core.closedTradeCount / initialCapital) * 100,
   });
 
   const monthlyReturns = core.monthlyReturns.map((entry) => ({
@@ -289,22 +437,31 @@ export async function publishStatSnapshot(
     .values({
       id: snapshotId,
       releaseId: input.releaseId,
-      scope: input.scope,
-      sourceKind: "BACKTEST_RUN",
-      sourceId: input.backtestRunId,
-      periodStart: run.fromTs,
-      periodEnd: run.toTs,
+      scope: resolved.scope,
+      sourceKind: resolved.sourceKind,
+      sourceId: resolved.sourceId,
+      periodStart: resolved.periodStart,
+      periodEnd: resolved.periodEnd,
       metrics,
       monthlyReturns,
       equityCurve: equityCurve.map((point) => ({ at: point.time, equity: Number(point.equity) })),
       calculationVersion: METRICS_CALCULATION_VERSION,
-      // The run's cost model is applied inside the stored net P&L, so every
-      // catalogued number here is net — never gross dressed up as net.
+      // Costs are inside the stored net P&L on both paths: a run's cost model
+      // for a backtest, the deployment's fill model fees for a forward test.
+      // Every catalogued number is net — never gross dressed up as net.
       costsApplied: true,
     })
     .onConflictDoUpdate({
       target: [algoStatSnapshots.releaseId, algoStatSnapshots.scope, algoStatSnapshots.sourceId],
-      set: { metrics, monthlyReturns, calculationVersion: METRICS_CALCULATION_VERSION },
+      set: {
+        metrics,
+        monthlyReturns,
+        // A forward snapshot is republished as the deployment accumulates
+        // trades, so the curve and the period must move with it.
+        equityCurve: equityCurve.map((point) => ({ at: point.time, equity: Number(point.equity) })),
+        periodEnd: resolved.periodEnd,
+        calculationVersion: METRICS_CALCULATION_VERSION,
+      },
     });
 
   return { ok: true, snapshotId };

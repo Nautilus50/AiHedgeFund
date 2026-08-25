@@ -57,6 +57,20 @@ interface AlgoListItem {
   name: string;
 }
 
+interface ForwardDeploymentSummary {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  state: string;
+}
+
+interface ForwardDeploymentPage {
+  items: ForwardDeploymentSummary[];
+}
+
+/** A deployment must actually have run to have anything worth publishing. */
+const PUBLISHABLE_DEPLOYMENT_STATES = new Set(["ACTIVE", "PAUSED", "COMPLETED"]);
+
 interface Me {
   role: string;
 }
@@ -69,14 +83,16 @@ const TERMINAL_STATES = new Set(["PAPER_APPROVED", "REJECTED"]);
 export default async function StrategyVersionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [versionResult, lineageResult, auditResult, runsResult, algosResult, meResult] = await Promise.all([
-    apiFetchSafe<StrategyVersionDetail>(`/v1/strategy-versions/${id}`),
-    apiFetchSafe<LineageEntry[]>(`/v1/strategy-versions/${id}/lineage`),
-    apiFetchSafe<AuditEvent[]>(`/v1/strategy-versions/${id}/audit`),
-    apiFetchSafe<BacktestRunPage>(`/v1/strategy-versions/${id}/backtest-runs`),
-    apiFetchSafe<{ items: AlgoListItem[] }>("/v1/algos"),
-    apiFetchSafe<Me>("/v1/me"),
-  ]);
+  const [versionResult, lineageResult, auditResult, runsResult, algosResult, meResult, forwardDeploymentsResult] =
+    await Promise.all([
+      apiFetchSafe<StrategyVersionDetail>(`/v1/strategy-versions/${id}`),
+      apiFetchSafe<LineageEntry[]>(`/v1/strategy-versions/${id}/lineage`),
+      apiFetchSafe<AuditEvent[]>(`/v1/strategy-versions/${id}/audit`),
+      apiFetchSafe<BacktestRunPage>(`/v1/strategy-versions/${id}/backtest-runs`),
+      apiFetchSafe<{ items: AlgoListItem[] }>("/v1/algos"),
+      apiFetchSafe<Me>("/v1/me"),
+      apiFetchSafe<ForwardDeploymentPage>(`/v1/strategy-versions/${id}/forward-deployments`),
+    ]);
 
   if ("error" in versionResult) {
     return (
@@ -96,6 +112,9 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
 
   const runs = "error" in runsResult ? [] : runsResult.data.items;
   const succeededRuns = runs.filter((run) => run.status === "SUCCEEDED");
+  const publishableDeployments = (
+    "error" in forwardDeploymentsResult ? [] : forwardDeploymentsResult.data.items
+  ).filter((deployment) => PUBLISHABLE_DEPLOYMENT_STATES.has(deployment.state));
   const canCatalogue =
     version.workflowState === "PAPER_APPROVED" && hasPine && !("error" in meResult) && CATALOGUING_ROLES.has(meResult.data.role);
 
@@ -135,6 +154,7 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
               strategyVersionId={id}
               algos={"error" in algosResult ? [] : algosResult.data.items}
               succeededRuns={succeededRuns}
+              forwardDeployments={publishableDeployments}
               defaultSymbol={succeededRuns[0]?.symbol ?? runs[0]?.symbol ?? ""}
               defaultTimeframe={succeededRuns[0]?.timeframe ?? runs[0]?.timeframe ?? ""}
             />

@@ -8,6 +8,7 @@ import {
   completeForwardDeployment,
   createForwardDeployment,
   getForwardDeployment,
+  listForwardDeploymentsForVersion,
   getForwardDeploymentHealth,
   getForwardDrawdownCurve,
   getForwardDriftReport,
@@ -87,6 +88,14 @@ export function registerForwardRoutes(app: FastifyInstance, deps: ForwardRouteDe
     if (!deployment) return notFound(reply, request, id);
 
     reply.send(deployment);
+  });
+
+  app.get("/v1/strategy-versions/:id/forward-deployments", async (request, reply) => {
+    const auth = request.requireAuth();
+    const { id } = request.params as { id: string };
+
+    const items = await listForwardDeploymentsForVersion(deps.db, auth.organisationId, id);
+    reply.send({ items });
   });
 
   const transitionRoute = (

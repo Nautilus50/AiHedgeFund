@@ -224,11 +224,34 @@ RELEASE_ID=$(curl -s -X POST http://localhost:4000/v1/algos/$ALGO_ID/releases \
 curl -X POST http://localhost:4000/v1/algo-releases/$RELEASE_ID/stats \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"backtestRunId\":\"$RUN_ID\",\"scope\":\"OUT_OF_SAMPLE\"}"
+  -d "{\"kind\":\"BACKTEST_RUN\",\"backtestRunId\":\"$RUN_ID\",\"scope\":\"OUT_OF_SAMPLE\"}"
 
 curl -X POST http://localhost:4000/v1/algos/$ALGO_ID/publish \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+The evidence body is a discriminated union on `kind` — a backtest run carries
+its own `scope` (`IN_SAMPLE` or `OUT_OF_SAMPLE`); a forward deployment carries
+none, because its scope is always `FORWARD_PAPER`:
+
+```bash
+curl -X POST http://localhost:4000/v1/algo-releases/$RELEASE_ID/stats \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"kind\":\"FORWARD_DEPLOYMENT\",\"forwardDeploymentId\":\"$DEPLOYMENT_ID\"}"
+```
+
+Metrics are recomputed the same way on both paths — a backtest run's stored
+trades, or a forward deployment's paper fills paired into trades — never
+copied from a runner or the paper engine's own summary. Forward evidence
+requires the deployment to belong to the release's strategy version, to have
+actually run (`ACTIVE`, `PAUSED`, or `COMPLETED` — not `PLANNED`, `FAILED`, or
+`CANCELLED`), and to have at least one closed round trip; each of those is a
+distinct `422` reason code (`DEPLOYMENT_VERSION_MISMATCH`,
+`DEPLOYMENT_NOT_PUBLISHABLE`, `NO_CLOSED_TRADES`). Republishing against the
+same deployment updates the existing `FORWARD_PAPER` snapshot in place, so a
+running deployment's evidence can be refreshed as it accumulates trades
+without minting a duplicate.
 
 A release from a version that has not reached `PAPER_APPROVED` is refused:
 
