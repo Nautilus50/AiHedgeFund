@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { Alert } from "../../../components/primitives";
 import {
+  catalogueAlgoAction,
   recordDecisionAction,
   requestVerificationAction,
   saveDefinitionAction,
@@ -273,6 +274,208 @@ export function DecisionForm({
         variant={isApproval ? "default" : "primary"}
         disabled={isApproval && !acknowledged}
       />
+    </form>
+  );
+}
+
+export interface CatalogueRunOption {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  segmentKind: string;
+}
+
+export interface CatalogueAlgoOption {
+  slug: string;
+  name: string;
+}
+
+const MARKETS = ["CRYPTO", "INDEX_FUTURES", "FX", "COMMODITIES", "EQUITIES"] as const;
+const SCOPES = ["OUT_OF_SAMPLE", "IN_SAMPLE"] as const;
+
+const SCOPE_HINT: Record<(typeof SCOPES)[number], string> = {
+  OUT_OF_SAMPLE: "A period held back during development and tested once.",
+  IN_SAMPLE: "The period this was developed on — the weakest claim available.",
+};
+
+/**
+ * Catalogues an approved version as an algo (ADR 0015).
+ *
+ * Four commands behind one form: resolve or create the algo, pin a release to
+ * this version, record evidence from one of the version's own succeeded runs,
+ * and publish. Evidence and publishing are separate checkboxes rather than
+ * implied, because publishing is the point at which a number becomes a claim.
+ */
+export function CatalogueAlgoForm({
+  strategyVersionId,
+  algos,
+  succeededRuns,
+  defaultSymbol,
+  defaultTimeframe,
+}: {
+  strategyVersionId: string;
+  algos: CatalogueAlgoOption[];
+  succeededRuns: CatalogueRunOption[];
+  defaultSymbol: string;
+  defaultTimeframe: string;
+}) {
+  const [state, formAction] = useFormState(catalogueAlgoAction.bind(null, strategyVersionId), initialState);
+  const [existingSlug, setExistingSlug] = useState("");
+  const [backtestRunId, setBacktestRunId] = useState(succeededRuns[0]?.id ?? "");
+
+  const creatingNew = existingSlug === "";
+  const hasEvidence = backtestRunId !== "";
+
+  return (
+    <form action={formAction}>
+      <Feedback state={state} />
+
+      {succeededRuns.length === 0 && (
+        <Alert tone="warn">
+          This version has no succeeded backtest run, so there is no evidence to catalogue with it. You can still create
+          the algo and its release, but it stays a draft until a snapshot exists.
+        </Alert>
+      )}
+
+      <div className="field">
+        <label htmlFor="existingSlug">Algo</label>
+        <select
+          id="existingSlug"
+          name="existingSlug"
+          value={existingSlug}
+          onChange={(event) => setExistingSlug(event.target.value)}
+        >
+          <option value="">Create a new algo</option>
+          {algos.map((algo) => (
+            <option key={algo.slug} value={algo.slug}>
+              Add a release to “{algo.name}”
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">
+          Releasing into an existing algo supersedes its current release — the algo keeps one current version.
+        </span>
+      </div>
+
+      {creatingNew && (
+        <>
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="algoName">Name</label>
+              <input id="algoName" name="name" placeholder="Momentum BTC" required={creatingNew} />
+            </div>
+            <div className="field">
+              <label htmlFor="algoSlug">Slug</label>
+              <input
+                id="algoSlug"
+                name="slug"
+                placeholder="momentum-btc"
+                pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                required={creatingNew}
+              />
+              <span className="field-hint">Lower-case words, single hyphens. Permanent — it is the algo&rsquo;s URL.</span>
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="algoTagline">Tagline</label>
+            <input id="algoTagline" name="tagline" placeholder="Trend continuation on BTC 1h." maxLength={240} />
+          </div>
+
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="marketCategory">Market</label>
+              <select id="marketCategory" name="marketCategory" defaultValue="CRYPTO">
+                {MARKETS.map((market) => (
+                  <option key={market} value={market}>
+                    {market.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="algoSymbol">Symbol</label>
+              <input id="algoSymbol" name="symbol" defaultValue={defaultSymbol} placeholder="BTCUSD" required={creatingNew} />
+            </div>
+            <div className="field">
+              <label htmlFor="algoTimeframe">Timeframe</label>
+              <input
+                id="algoTimeframe"
+                name="timeframe"
+                defaultValue={defaultTimeframe}
+                placeholder="60"
+                required={creatingNew}
+              />
+            </div>
+          </div>
+          <span className="field-hint">
+            Symbol and timeframe default to this version&rsquo;s most recent run — they describe the algo, not the run.
+          </span>
+        </>
+      )}
+
+      <div className="field" style={{ marginTop: "var(--sp-4)" }}>
+        <label htmlFor="changelog">Changelog</label>
+        <input id="changelog" name="changelog" placeholder="First release." maxLength={4000} />
+      </div>
+
+      <div className="field">
+        <label htmlFor="setupInstructions">Setup notes</label>
+        <textarea
+          id="setupInstructions"
+          name="setupInstructions"
+          rows={3}
+          placeholder="Paste into TradingView, set the alert webhook, confirm the symbol and timeframe."
+        />
+        <span className="field-hint">Shown next to the source when you come back to run this algo.</span>
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="backtestRunId">Evidence run</label>
+          <select
+            id="backtestRunId"
+            name="backtestRunId"
+            value={backtestRunId}
+            onChange={(event) => setBacktestRunId(event.target.value)}
+          >
+            <option value="">None for now</option>
+            {succeededRuns.map((run) => (
+              <option key={run.id} value={run.id}>
+                {run.segmentKind} · {run.symbol} / {run.timeframe} · {run.id.slice(0, 8)}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">
+            Metrics are recomputed from this run&rsquo;s trade ledger — nothing is copied from a runner summary.
+          </span>
+        </div>
+        <div className="field">
+          <label htmlFor="scope">Scope</label>
+          <select id="scope" name="scope" defaultValue="OUT_OF_SAMPLE" disabled={!hasEvidence}>
+            {SCOPES.map((scope) => (
+              <option key={scope} value={scope}>
+                {scope.replace(/_/g, " ").toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">{SCOPE_HINT.OUT_OF_SAMPLE}</span>
+        </div>
+      </div>
+
+      <div className="field">
+        <label htmlFor="publishNow" className="row" style={{ gap: "var(--sp-2)" }}>
+          <input id="publishNow" name="publishNow" type="checkbox" disabled={!hasEvidence} />
+          Publish to the library now
+        </label>
+        <span className="field-hint">
+          {hasEvidence
+            ? "Publishing marks the algo ready to run. It stays a draft otherwise."
+            : "Requires an evidence run — an algo you cannot check does not get published."}
+        </span>
+      </div>
+
+      <SubmitButton label="Catalogue this algo" pendingLabel="Cataloguing…" />
     </form>
   );
 }

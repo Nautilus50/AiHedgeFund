@@ -2,7 +2,13 @@ import Link from "next/link";
 import { apiFetchSafe } from "../../../lib/api";
 import { StateBadge } from "../../../components/Badge";
 import { Alert, Card, CardBody, CardHead, EmptyState, Hash, Timestamp } from "../../../components/primitives";
-import { DecisionForm, RequestVerificationForm, SaveDefinitionForm, SavePineForm } from "./StrategyForms";
+import {
+  CatalogueAlgoForm,
+  DecisionForm,
+  RequestVerificationForm,
+  SaveDefinitionForm,
+  SavePineForm,
+} from "./StrategyForms";
 
 interface StrategyVersionDetail {
   id: string;
@@ -46,16 +52,30 @@ interface BacktestRunPage {
   items: BacktestRunSummary[];
 }
 
+interface AlgoListItem {
+  slug: string;
+  name: string;
+}
+
+interface Me {
+  role: string;
+}
+
+/** Cataloguing is an operator action — mirrors PUBLISHING_ROLES in routes/algo-library.ts. */
+const CATALOGUING_ROLES = new Set(["OPERATOR", "ADMIN"]);
+
 const TERMINAL_STATES = new Set(["PAPER_APPROVED", "REJECTED"]);
 
 export default async function StrategyVersionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [versionResult, lineageResult, auditResult, runsResult] = await Promise.all([
+  const [versionResult, lineageResult, auditResult, runsResult, algosResult, meResult] = await Promise.all([
     apiFetchSafe<StrategyVersionDetail>(`/v1/strategy-versions/${id}`),
     apiFetchSafe<LineageEntry[]>(`/v1/strategy-versions/${id}/lineage`),
     apiFetchSafe<AuditEvent[]>(`/v1/strategy-versions/${id}/audit`),
     apiFetchSafe<BacktestRunPage>(`/v1/strategy-versions/${id}/backtest-runs`),
+    apiFetchSafe<{ items: AlgoListItem[] }>("/v1/algos"),
+    apiFetchSafe<Me>("/v1/me"),
   ]);
 
   if ("error" in versionResult) {
@@ -73,6 +93,11 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
   const isTerminal = TERMINAL_STATES.has(version.workflowState);
   const hasDefinition = Boolean(version.definitionHash);
   const hasPine = Boolean(version.pineSourceHash);
+
+  const runs = "error" in runsResult ? [] : runsResult.data.items;
+  const succeededRuns = runs.filter((run) => run.status === "SUCCEEDED");
+  const canCatalogue =
+    version.workflowState === "PAPER_APPROVED" && hasPine && !("error" in meResult) && CATALOGUING_ROLES.has(meResult.data.role);
 
   return (
     <>
@@ -97,6 +122,24 @@ export default async function StrategyVersionDetailPage({ params }: { params: Pr
           This version has reached a terminal state. It can no longer be edited or transitioned;
           continuing this line of research means creating a child version.
         </Alert>
+      )}
+
+      {canCatalogue && (
+        <Card>
+          <CardHead
+            title="Catalogue this algo"
+            hint="Adds this version to the Algo Library as a release, with evidence recomputed from one of its own runs (ADR 0015)."
+          />
+          <CardBody>
+            <CatalogueAlgoForm
+              strategyVersionId={id}
+              algos={"error" in algosResult ? [] : algosResult.data.items}
+              succeededRuns={succeededRuns}
+              defaultSymbol={succeededRuns[0]?.symbol ?? runs[0]?.symbol ?? ""}
+              defaultTimeframe={succeededRuns[0]?.timeframe ?? runs[0]?.timeframe ?? ""}
+            />
+          </CardBody>
+        </Card>
       )}
 
       {version.workflowState === "PAPER_APPROVED" && (
