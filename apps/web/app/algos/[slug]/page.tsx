@@ -32,8 +32,12 @@ export default async function AlgoDetailPage({ params }: { params: Promise<{ slu
           <h1>{algo.name}</h1>
           <p className="page-subtitle">{algo.tagline}</p>
           <p className="page-subtitle">
-            <Badge tone={STATUS_TONE[algo.status]}>{algo.status}</Badge> {algo.marketCategory.replace("_", " ")} ·{" "}
-            {algo.symbol} · {algo.timeframe}
+            <Badge tone={STATUS_TONE[algo.status]}>{algo.status}</Badge>{" "}
+            {/* Headline scope is priority-ranked server-side (FORWARD_PAPER beats any backtest
+                scope) — if it's showing, the strongest evidence for this algo is a real forward
+                paper run, not a historical simulation. */}
+            {algo.headline?.scope === "FORWARD_PAPER" && <Badge tone="ok">Forward tested</Badge>}{" "}
+            {algo.marketCategory.replace("_", " ")} · {algo.symbol} · {algo.timeframe}
           </p>
         </div>
       </div>

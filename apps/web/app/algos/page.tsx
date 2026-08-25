@@ -133,7 +133,13 @@ export default async function AlgoLibraryPage({
                   {result.data.items.map((algo) => (
                     <tr key={algo.algoId}>
                       <td>
-                        <Link href={`/algos/${algo.slug}`}>{algo.name}</Link>
+                        <div className="row" style={{ gap: "var(--sp-2)", alignItems: "baseline" }}>
+                          <Link href={`/algos/${algo.slug}`}>{algo.name}</Link>
+                          {/* pickHeadline (catalogue.ts) always prefers FORWARD_PAPER over any
+                              backtest scope, so this badge and the headline number are never out
+                              of sync — if it's showing, the number beside it is forward-paper. */}
+                          {algo.headline?.scope === "FORWARD_PAPER" && <Badge tone="ok">Forward tested</Badge>}
+                        </div>
                         {algo.tagline && <div className="card-hint">{algo.tagline}</div>}
                       </td>
                       <td>
