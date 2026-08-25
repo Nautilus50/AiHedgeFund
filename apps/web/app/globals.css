@@ -755,3 +755,153 @@ button:disabled {
 .chart-export {
   align-self: flex-start;
 }
+
+/* ---------- Algo library ---------- */
+
+.algo-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/*
+ * Scope tabs, not overlaid series: an in-sample curve and a forward paper
+ * curve are different claims, and the control makes the reader pick one
+ * (CLAUDE.md 18.1).
+ */
+.algo-scope-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  border-bottom: 1px solid var(--c-border);
+  padding-bottom: var(--sp-3);
+}
+
+.algo-tab {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.algo-tab:hover {
+  background: var(--c-surface-2);
+}
+
+.algo-tab-active {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
+  color: var(--c-text);
+}
+
+.algo-scope-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.algo-scope-meta {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-text-faint);
+}
+
+.algo-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1px;
+  background: var(--c-border);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin: 0;
+}
+
+.algo-stats > div {
+  background: var(--c-surface);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.algo-stats dt {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.algo-stats dd {
+  margin: var(--sp-1) 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.algo-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sign is already carried by the − glyph; colour only reinforces it. */
+.algo-num-pos {
+  color: var(--c-ok);
+}
+
+.algo-num-neg {
+  color: var(--c-danger);
+}
+
+.algo-chart {
+  margin: 0;
+}
+
+.algo-chart figcaption {
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-2);
+}
+
+.algo-monthly {
+  max-width: 320px;
+}
+
+.algo-monthly caption {
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  padding-bottom: var(--sp-2);
+}
+
+.algo-source {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.algo-source-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface-2);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.algo-source-file {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.algo-source pre {
+  margin: 0;
+  padding: var(--sp-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--c-surface);
+}

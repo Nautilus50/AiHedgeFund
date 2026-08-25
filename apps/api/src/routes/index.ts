@@ -1,6 +1,7 @@
 import type { S3Client } from "@aws-sdk/client-s3";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "@arf-os/db";
+import { registerAlgoLibraryRoutes } from "./algo-library.js";
 import { registerBacktestRunRoutes } from "./backtest-runs.js";
 import { registerCampaignRoutes } from "./campaigns.js";
 import { registerCommitteeQueueRoutes } from "./committee-queue.js";
@@ -24,6 +25,7 @@ export interface ApiDeps {
 }
 
 export function registerRoutes(app: FastifyInstance, deps: ApiDeps): void {
+  registerAlgoLibraryRoutes(app, { db: deps.db });
   registerBacktestRunRoutes(app, { db: deps.db });
   registerCampaignRoutes(app, { db: deps.db });
   registerCommitteeQueueRoutes(app, { db: deps.db });

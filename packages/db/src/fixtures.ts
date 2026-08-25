@@ -1,6 +1,6 @@
 import { generateId } from "@arf-os/contracts";
 import type { Database } from "./client.js";
-import { campaigns, memberships, organisations, strategies, strategyVersions, users } from "./schema/index.js";
+import { campaigns, memberships, organisations, pineRevisions, strategies, strategyVersions, users } from "./schema/index.js";
 
 export interface SeededOrganisation {
   organisationId: string;
@@ -79,4 +79,31 @@ export async function seedStrategyVersion(
   });
 
   return { strategyId, strategyVersionId };
+}
+
+/**
+ * Attaches a Pine revision to a strategy version, which is what a release
+ * ultimately delivers. Source is deliberately recognisable so a test can assert
+ * that exactly this text came back out of the library.
+ */
+export async function seedPineRevision(
+  db: Database,
+  strategyVersionId: string,
+  options: { source?: string; sourceHash?: string } = {},
+): Promise<{ pineRevisionId: string; source: string; sourceHash: string }> {
+  const pineRevisionId = generateId<string>();
+  const source = options.source ?? `//@version=6\nstrategy("Fixture ${strategyVersionId.slice(0, 8)}")`;
+  const sourceHash = options.sourceHash ?? `hash-${strategyVersionId.slice(0, 12)}`;
+
+  await db.insert(pineRevisions).values({
+    id: pineRevisionId,
+    strategyVersionId,
+    source,
+    sourceHash,
+    manifest: {},
+    manifestHash: `manifest-${strategyVersionId.slice(0, 12)}`,
+    compileStatus: "SUCCEEDED",
+  });
+
+  return { pineRevisionId, source, sourceHash };
 }

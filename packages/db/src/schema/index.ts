@@ -11,3 +11,4 @@ export * from "./practice-arena.js";
 export * from "./governance.js";
 export * from "./read-models.js";
 export * from "./system.js";
+export * from "./algo-library.js";

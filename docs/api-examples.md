@@ -203,6 +203,72 @@ return 409:
   "detail": "The actor who created this strategy version cannot approve it (CLAUDE.md 3.4)." }
 ```
 
+## Algo library
+
+Catalogue an algo, pin a release to a `PAPER_APPROVED` strategy version, record
+the evidence, and publish it (ADR 0015). All four require `OPERATOR` or `ADMIN`.
+
+```bash
+ALGO_ID=$(curl -s -X POST http://localhost:4000/v1/algos \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"slug":"momentum-btc","name":"Momentum BTC","tagline":"Trend continuation on BTC 1h.",
+       "marketCategory":"CRYPTO","symbol":"BTCUSD","timeframe":"60"}' | jq -r .algoId)
+
+RELEASE_ID=$(curl -s -X POST http://localhost:4000/v1/algos/$ALGO_ID/releases \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"strategyVersionId\":\"$VERSION_ID\",\"changelog\":\"First release.\"}" | jq -r .releaseId)
+
+curl -X POST http://localhost:4000/v1/algo-releases/$RELEASE_ID/stats \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"kind\":\"BACKTEST_RUN\",\"backtestRunId\":\"$RUN_ID\",\"scope\":\"OUT_OF_SAMPLE\"}"
+
+curl -X POST http://localhost:4000/v1/algos/$ALGO_ID/publish \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The evidence body is a discriminated union on `kind` — a backtest run carries
+its own `scope` (`IN_SAMPLE` or `OUT_OF_SAMPLE`); a forward deployment carries
+none, because its scope is always `FORWARD_PAPER`:
+
+```bash
+curl -X POST http://localhost:4000/v1/algo-releases/$RELEASE_ID/stats \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"kind\":\"FORWARD_DEPLOYMENT\",\"forwardDeploymentId\":\"$DEPLOYMENT_ID\"}"
+```
+
+Metrics are recomputed the same way on both paths — a backtest run's stored
+trades, or a forward deployment's paper fills paired into trades — never
+copied from a runner or the paper engine's own summary. Forward evidence
+requires the deployment to belong to the release's strategy version, to have
+actually run (`ACTIVE`, `PAUSED`, or `COMPLETED` — not `PLANNED`, `FAILED`, or
+`CANCELLED`), and to have at least one closed round trip; each of those is a
+distinct `422` reason code (`DEPLOYMENT_VERSION_MISMATCH`,
+`DEPLOYMENT_NOT_PUBLISHABLE`, `NO_CLOSED_TRADES`). Republishing against the
+same deployment updates the existing `FORWARD_PAPER` snapshot in place, so a
+running deployment's evidence can be refreshed as it accumulates trades
+without minting a duplicate.
+
+A release from a version that has not reached `PAPER_APPROVED` is refused:
+
+```json
+{ "status": 422, "code": "NOT_PAPER_APPROVED",
+  "detail": "A release requires a PAPER_APPROVED strategy version (this one is PINE_DEVELOPMENT)." }
+```
+
+Reading the catalogue and the source. The source comes from the release's
+immutable Pine revision, and the read writes an `ALGO_SOURCE_READ` audit event:
+
+```bash
+curl "http://localhost:4000/v1/algos?status=PUBLISHED" -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/v1/algos/momentum-btc -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/v1/algos/momentum-btc/source -H "Authorization: Bearer $TOKEN"
+```
+
 ## Audit timeline
 
 ```bash

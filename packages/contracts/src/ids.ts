@@ -23,6 +23,9 @@ export type ParityReportId = string & { readonly __brand: "ParityReportId" };
 export type CommitteeDecisionId = string & { readonly __brand: "CommitteeDecisionId" };
 export type AuditEventId = string & { readonly __brand: "AuditEventId" };
 export type HandoffId = string & { readonly __brand: "HandoffId" };
+export type AlgoId = string & { readonly __brand: "AlgoId" };
+export type AlgoReleaseId = string & { readonly __brand: "AlgoReleaseId" };
+export type StatSnapshotId = string & { readonly __brand: "StatSnapshotId" };
 export type IdempotencyKey = string & { readonly __brand: "IdempotencyKey" };
 
 /** Generates a new UUIDv7-compatible identifier, branded to the requested ID type. */
