@@ -28,12 +28,18 @@ interface ExposureOverlapResult {
   jaccardPct: number;
 }
 
+interface SignalOverlapResult {
+  jaccardPct: number;
+  sharedTokens: string[];
+}
+
 interface PairCorrelation {
   strategyAId: string;
   strategyBId: string;
   returnCorrelation: SeriesCorrelationResult;
   drawdownCorrelation: SeriesCorrelationResult;
   exposureOverlap: ExposureOverlapResult;
+  signalOverlap: SignalOverlapResult | undefined;
   evidenceTierMismatch: boolean;
 }
 
@@ -81,9 +87,9 @@ export default async function PortfolioResearchPage() {
       <div className="page-head">
         <h1>Portfolio Research</h1>
         <p className="page-hint">
-          Return correlation, drawdown correlation, exposure overlap, and market/turnover concentration across every
-          PAPER_APPROVED strategy in this organisation — computed live from existing backtest evidence, no new table
-          (see ADR 0011).
+          Return correlation, drawdown correlation, exposure overlap, textual signal overlap, and market/turnover
+          concentration across every PAPER_APPROVED strategy in this organisation — computed live from existing
+          backtest evidence, no new table (see ADR 0011).
         </p>
       </div>
 
@@ -196,6 +202,7 @@ export default async function PortfolioResearchPage() {
                       <th>Return correlation</th>
                       <th>Drawdown correlation</th>
                       <th>Exposure overlap (Jaccard)</th>
+                      <th>Signal overlap (textual)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -209,6 +216,15 @@ export default async function PortfolioResearchPage() {
                         <td>{formatCorrelation(pair.drawdownCorrelation)}</td>
                         <td>
                           {pair.exposureOverlap.jaccardPct.toFixed(1)}% ({pair.exposureOverlap.overlapHours.toFixed(1)}h)
+                        </td>
+                        <td>
+                          {pair.signalOverlap === undefined ? (
+                            <span className="unset">no definition on file</span>
+                          ) : (
+                            <span title={pair.signalOverlap.sharedTokens.join(", ") || "no shared tokens"}>
+                              {pair.signalOverlap.jaccardPct.toFixed(1)}%
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -226,7 +242,6 @@ export default async function PortfolioResearchPage() {
                 improvised here. See ADR 0011.
               </p>
               <ul>
-                <li>Signal overlap — needs indicator/entry-condition introspection this repo doesn't have</li>
                 <li>Strategy-family concentration — no tagging/categorisation system exists</li>
                 <li>Capacity assumptions — needs real liquidity/ADV data</li>
                 <li>Portfolio-level stress tests — needs a real methodology, not improvised here</li>

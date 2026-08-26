@@ -1,6 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { generateId } from "@arf-os/contracts";
-import { backtestRuns, closeDatabase, createTestDatabase, isTestDatabaseAvailable, seedOrganisation, seedStrategyVersion, truncateAll, type Database } from "@arf-os/db";
+import {
+  backtestRuns,
+  closeDatabase,
+  createTestDatabase,
+  isTestDatabaseAvailable,
+  seedOrganisation,
+  seedStrategyVersion,
+  strategyDefinitions,
+  truncateAll,
+  type Database,
+} from "@arf-os/db";
 import { getPortfolioCorrelationReport } from "./portfolio-research.js";
 
 const available = await isTestDatabaseAvailable();
@@ -132,6 +142,49 @@ describe.skipIf(!available)("portfolio research (integration)", () => {
     const report = await getPortfolioCorrelationReport(db, org.organisationId, {});
     expect(report.strategies).toEqual([]);
     expect(report.excludedStrategies).toEqual([]);
+  });
+
+  async function seedDefinition(strategyVersionId: string, signals: { longEntry: string; shortEntry: string }): Promise<void> {
+    await db.insert(strategyDefinitions).values({
+      id: generateId<string>(),
+      strategyVersionId,
+      definition: { signals },
+      definitionHash: `hash-${strategyVersionId.slice(0, 12)}`,
+    });
+  }
+
+  it("computes signal overlap when both strategies have a strategy_definitions row", async () => {
+    const org = await seedOrganisation(db);
+    const stratA = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedSucceededRun(stratA.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE" });
+    await seedDefinition(stratA.strategyVersionId, { longEntry: "rsi_below_30 AND confirmed_bar", shortEntry: "rsi_above_70" });
+
+    const stratB = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedSucceededRun(stratB.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE" });
+    await seedDefinition(stratB.strategyVersionId, { longEntry: "rsi_below_30 AND volume_spike", shortEntry: "macd_cross_down" });
+
+    const report = await getPortfolioCorrelationReport(db, org.organisationId, {});
+    expect(report.pairCorrelations).toHaveLength(1);
+    // A tokens: {rsi_below_30, and, confirmed_bar, rsi_above_70} (4)
+    // B tokens: {rsi_below_30, and, volume_spike, macd_cross_down} (4)
+    // shared: {rsi_below_30, and} (2), union: 6 -> 2/6*100 = 33.33%
+    expect(report.pairCorrelations[0]?.signalOverlap?.jaccardPct).toBeCloseTo(33.333333, 4);
+    expect(report.pairCorrelations[0]?.signalOverlap?.sharedTokens).toEqual(["and", "rsi_below_30"]);
+  });
+
+  it("reports undefined signal overlap when one strategy has no strategy_definitions row", async () => {
+    const org = await seedOrganisation(db);
+    const stratA = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedSucceededRun(stratA.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE" });
+    await seedDefinition(stratA.strategyVersionId, { longEntry: "rsi_below_30", shortEntry: "rsi_above_70" });
+
+    const stratB = await seedStrategyVersion(db, org, { workflowState: "PAPER_APPROVED" });
+    await seedSucceededRun(stratB.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE" });
+    // No strategy_definitions row seeded for stratB.
+
+    const report = await getPortfolioCorrelationReport(db, org.organisationId, {});
+    expect(report.pairCorrelations).toHaveLength(1);
+    expect(report.pairCorrelations[0]?.signalOverlap).toBeUndefined();
   });
 
   it("groups market concentration by the representative run's symbol", async () => {

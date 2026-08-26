@@ -179,3 +179,41 @@ export function computeExposureOverlap(tradesA: readonly TradeInterval[], trades
     jaccardPct: unionMs === 0 ? 0 : (overlapMs / unionMs) * 100,
   };
 }
+
+export interface SignalExpressions {
+  longEntry: string;
+  shortEntry: string;
+}
+
+export interface SignalOverlapResult {
+  /** Jaccard index (0-100) over the token sets described below. */
+  jaccardPct: number;
+  sharedTokens: string[];
+}
+
+function tokenizeSignalExpression(expression: string): Set<string> {
+  return new Set(expression.toLowerCase().split(/[^a-z0-9_]+/).filter((token) => token.length > 0));
+}
+
+/**
+ * Token-set Jaccard similarity over each strategy's SDL `signals.longEntry`
+ * + `signals.shortEntry` expressions, lowercased and split on
+ * non-identifier characters. This is TEXTUAL similarity, not semantic: two
+ * strategies with differently-worded but functionally identical logic score
+ * low, and two unrelated strategies that happen to share common terms (e.g.
+ * both reference "rsi" and "cross") score higher than their real overlap.
+ * It exists to flag a pair worth reading side by side, not to stand in for
+ * that reading (ADR 0011).
+ */
+export function computeSignalOverlap(signalsA: SignalExpressions, signalsB: SignalExpressions): SignalOverlapResult {
+  const tokensA = tokenizeSignalExpression(`${signalsA.longEntry} ${signalsA.shortEntry}`);
+  const tokensB = tokenizeSignalExpression(`${signalsB.longEntry} ${signalsB.shortEntry}`);
+
+  const sharedTokens = Array.from(tokensA).filter((token) => tokensB.has(token)).sort();
+  const unionSize = new Set([...tokensA, ...tokensB]).size;
+
+  return {
+    jaccardPct: unionSize === 0 ? 0 : (sharedTokens.length / unionSize) * 100,
+    sharedTokens,
+  };
+}

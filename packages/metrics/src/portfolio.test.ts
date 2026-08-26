@@ -3,6 +3,7 @@ import {
   MIN_OVERLAP_DAYS,
   computeExposureOverlap,
   computeSeriesCorrelation,
+  computeSignalOverlap,
   computeSpearmanCorrelation,
   toDailyDrawdownSeries,
   toDailyEquitySeries,
@@ -142,5 +143,35 @@ describe("computeExposureOverlap", () => {
     const result = computeExposureOverlap(tradesA, tradesB);
     expect(result.overlapHours).toBe(0);
     expect(result.jaccardPct).toBe(0);
+  });
+});
+
+describe("computeSignalOverlap", () => {
+  it("computes token-set Jaccard over combined longEntry+shortEntry text — hand-calculated", () => {
+    // A tokens: {trend_fast_above_slow, and, pullback_recovery, confirmed_bar, trend_fast_below_slow, pullback_rejection}
+    // B shares confirmed_bar and and with A, plus its own unique tokens.
+    const a = { longEntry: "trend_fast_above_slow AND pullback_recovery", shortEntry: "trend_fast_below_slow AND confirmed_bar" };
+    const b = { longEntry: "rsi_oversold AND confirmed_bar", shortEntry: "rsi_overbought AND cross_below" };
+
+    // tokensA = {trend_fast_above_slow, and, pullback_recovery, trend_fast_below_slow, confirmed_bar} (5)
+    // tokensB = {rsi_oversold, and, confirmed_bar, rsi_overbought, cross_below} (5)
+    // shared = {and, confirmed_bar} (2), union = 8 -> 2/8*100 = 25%
+    const result = computeSignalOverlap(a, b);
+    expect(result.jaccardPct).toBeCloseTo(25, 6);
+    expect(result.sharedTokens).toEqual(["and", "confirmed_bar"]);
+  });
+
+  it("scores 100% for identical expressions", () => {
+    const signals = { longEntry: "close > sma_50", shortEntry: "close < sma_50" };
+    const result = computeSignalOverlap(signals, { ...signals });
+    expect(result.jaccardPct).toBe(100);
+  });
+
+  it("scores 0% for expressions sharing no tokens", () => {
+    const a = { longEntry: "alpha AND beta", shortEntry: "gamma" };
+    const b = { longEntry: "delta OR epsilon", shortEntry: "zeta" };
+    const result = computeSignalOverlap(a, b);
+    expect(result.jaccardPct).toBe(0);
+    expect(result.sharedTokens).toEqual([]);
   });
 });
