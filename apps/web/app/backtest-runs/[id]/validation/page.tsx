@@ -37,6 +37,22 @@ interface BenchmarkComparisonPanel {
   reasonCode?: "NO_DATASET" | "NO_BARS_IN_WINDOW";
 }
 
+interface PercentileBand {
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}
+
+interface MonteCarloFanResult {
+  calculationVersion: string;
+  iterations: number;
+  seed: number;
+  finalReturnPct: PercentileBand;
+  maxDrawdownPct: PercentileBand;
+}
+
 interface ValidationLabReport {
   computedAt: string;
   targetRunId: string;
@@ -45,6 +61,7 @@ interface ValidationLabReport {
   tradeRemovalConcentration: { curve: TradeContribution[]; totalNetProfit: string; topN: number };
   directionalBreakdown: { long: SubsetMetrics; short: SubsetMetrics };
   benchmarkComparison: BenchmarkComparisonPanel;
+  monteCarloFan: MonteCarloFanResult | undefined;
 }
 
 function pct(value: number | null, digits = 1): string {
@@ -54,7 +71,6 @@ function pct(value: number | null, digits = 1): string {
 const NOT_YET_BUILT = [
   "Parameter stability heatmap — needs child strategy versions per parameter variant, a real branching decision",
   "Neighbourhood survival — same dependency as above",
-  "Monte Carlo fan (trade-order / return-path resampling) — a real statistical methodology, not improvised here",
   "Cost / slippage sensitivity — needs re-running the backtest with a perturbed cost model",
   "Entry-delay and missed-trade simulation — same dependency",
   "Start-date sensitivity — needs re-running against shifted windows",
@@ -288,8 +304,57 @@ export default async function ValidationLabPage({ params }: { params: Promise<{ 
 
       <Card>
         <CardHead
+          title="Monte Carlo fan"
+          hint="Bootstrap-resamples this run's own closed trades, with replacement, many times and reports percentile bands of the resulting equity paths — deterministic (a fixed seed, not true randomness), so re-loading this page never changes the fan. Measures trade-order luck alone: it reshuffles only outcomes this run actually had, so it says nothing about parameter robustness, regime sensitivity, or how a different set of trades might have gone."
+        />
+        <CardBody>
+          {report.monteCarloFan ? (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th />
+                    <th>p5</th>
+                    <th>p25</th>
+                    <th>p50</th>
+                    <th>p75</th>
+                    <th>p95</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Final return</td>
+                    <td className="num">{report.monteCarloFan.finalReturnPct.p5.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.finalReturnPct.p25.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.finalReturnPct.p50.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.finalReturnPct.p75.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.finalReturnPct.p95.toFixed(2)}%</td>
+                  </tr>
+                  <tr>
+                    <td>Max drawdown</td>
+                    <td className="num">{report.monteCarloFan.maxDrawdownPct.p5.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.maxDrawdownPct.p25.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.maxDrawdownPct.p50.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.maxDrawdownPct.p75.toFixed(2)}%</td>
+                    <td className="num">{report.monteCarloFan.maxDrawdownPct.p95.toFixed(2)}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="card-hint">
+                {report.monteCarloFan.iterations} resamples, seed {report.monteCarloFan.seed}, calculation v
+                {report.monteCarloFan.calculationVersion}.
+              </p>
+            </div>
+          ) : (
+            <EmptyState title="No closed trades yet">A fan needs at least one closed trade to resample from.</EmptyState>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHead
           title="Not yet built"
-          hint="AI_RESEARCH_HEDGE_FUND_SPEC.md §7.7/§15.8 spec 19 robustness test types; this slice honestly builds the four above. See ADR 0009."
+          hint="AI_RESEARCH_HEDGE_FUND_SPEC.md §7.7/§15.8 spec 19 robustness test types; this slice honestly builds several of them, listed on this page. See ADR 0009."
         />
         <CardBody>
           <ul>

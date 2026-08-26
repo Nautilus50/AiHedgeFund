@@ -96,6 +96,34 @@ own costs. A run with no linked dataset, or a dataset whose bars don't cover the
 reports `result: undefined` with a `reasonCode` (`NO_DATASET` / `NO_BARS_IN_WINDOW`) rather than
 a zero or a fabricated comparison.
 
+### Monte Carlo fan — added 2026-08-26, trade-order resampling only
+
+Added the same day as the benchmark comparison above, but for a different reason: unlike
+benchmark comparison, this one never needed new data — it was buildable from day one, just not
+built yet. `computeMonteCarloFan` (`packages/metrics/src/robustness.ts`) bootstrap-resamples
+(with replacement) a run's own closed-trade net P&L sequence `MONTE_CARLO_ITERATIONS` (1000)
+times, walks each resampled sequence as an equity path from `initialCapital`, and reports
+percentile bands (`p5`/`p25`/`p50`/`p75`/`p95`) of each path's final return % and max drawdown
+%. Wired into `getValidationLabReport` from the same `targetTrades`/`initialCapital` already
+loaded for every other panel — no new query.
+
+**Deterministic, not `Math.random()`.** A seedable PRNG (`mulberry32`, seeded with the fixed
+constant `MONTE_CARLO_SEED`) means the same trade ledger always produces the same fan, on every
+reload — required by CLAUDE.md 4's reproducibility rule, which a page that resimulates
+differently on every request would quietly violate. `calculationVersion`, `iterations`, and
+`seed` are all echoed in the response, the same "state the exact inputs, not just the output"
+pattern `computedAt` and echoed run ids use elsewhere in this report.
+
+**What this measures, stated plainly, not left implicit.** Every resampled path draws only from
+this run's own realized trade outcomes — it can reorder them, repeat them, or omit them, but it
+can never invent an outcome this run never had. That makes it a measure of exactly one thing:
+how much *trade-order luck alone* shaped this run's own equity curve. It says nothing about
+parameter robustness (a different parameter set), regime sensitivity (a different market
+period), or what would happen with a genuinely different set of trades — those remain listed
+as unbuilt below, for the reasons already given there. A run with no closed trades, or a
+non-positive `initialCapital`, reports `monteCarloFan: undefined` rather than an empty or
+zero-valued fan.
+
 ## Alternatives considered
 
 **Pick a single "the" IS/OOS comparison (e.g. most recent OOS run) instead of returning every
@@ -121,13 +149,13 @@ queries `backtestRuns`/`strategyVersions`/`strategies` directly instead.
 - "Long/short breakdown" has no named panel in §15.8's UI list — it's a §7.7 test only. This
   page's panel is additive to the spec'd UI, not a completion of one of its named entries.
 - Remaining unbuilt (per §7.7/§15.8, listed explicitly on the new page itself, not just here):
-  parameter stability heatmap, neighbourhood survival, Monte Carlo fan, cost/slippage
-  sensitivity, entry delay, missed-trade simulation, start-date sensitivity, symbol transfer,
-  regime breakdown, multiple-testing penalty. Local-vs-TradingView parity and the repainting
-  review are not re-listed as gaps — parity already exists (the Parity panel on the
-  backtest-run page); repainting review has no dedicated UI yet but is a Pine-lint-time concept
-  (`packages/pine`), not a robustness-test-time one. Benchmark comparison, listed here
-  originally as unbuilt, was added 2026-08-26 — see Decision above.
+  parameter stability heatmap, neighbourhood survival, cost/slippage sensitivity, entry delay,
+  missed-trade simulation, start-date sensitivity, symbol transfer, regime breakdown,
+  multiple-testing penalty. Local-vs-TradingView parity and the repainting review are not
+  re-listed as gaps — parity already exists (the Parity panel on the backtest-run page);
+  repainting review has no dedicated UI yet but is a Pine-lint-time concept (`packages/pine`),
+  not a robustness-test-time one. Benchmark comparison and Monte Carlo fan, listed here
+  originally as unbuilt, were added 2026-08-26 — see Decision above.
 
 ## Security implications
 
@@ -146,4 +174,6 @@ matching this ADR's existing pattern of never trusting a foreign-key value alone
 None — no schema change. Rollback is deleting the new route, service, page, and
 `packages/metrics/src/robustness.ts`; nothing else depends on them. Benchmark comparison's
 `loadDatasetBars` (`apps/api/src/services/datasets.ts`) is additive to that same file and safe
-to delete alongside it without touching `createDatasetVersion` or anything else there.
+to delete alongside it without touching `createDatasetVersion` or anything else there. Monte
+Carlo fan adds no dependency of its own — it's pure functions over data every other panel here
+already loads, so rolling it back is deleting `computeMonteCarloFan` and its call site alone.
