@@ -11,7 +11,9 @@ import {
   parityReports,
   seedOrganisation,
   strategies,
+  strategyDefinitions,
   strategyVersions,
+  trades,
   tradingviewVerifications,
   truncateAll,
   type Database,
@@ -153,6 +155,8 @@ describe.skipIf(!available)("getDashboardKpis (integration)", () => {
     expect(kpis.backtestRuns).toEqual({ total: 0, byStatus: {}, byRunnerType: {} });
     expect(kpis.datasets.total).toBe(0);
     expect(kpis.parity).toEqual({ total: 0, byStatus: {} });
+    expect(kpis.portfolioResearch).toEqual({ paperApprovedStrategies: 0, withSdlDefinition: 0 });
+    expect(kpis.validationLab).toEqual({ withBenchmarkDataset: 0, withClosedTrades: 0 });
   });
 
   it("never counts another organisation's data", async () => {
@@ -175,5 +179,72 @@ describe.skipIf(!available)("getDashboardKpis (integration)", () => {
     expect(kpisB.strategies.total).toBe(2);
     expect(kpisB.datasets.total).toBe(1);
     expect(kpisB.backtestRuns.total).toBe(0);
+  });
+
+  it("counts PAPER_APPROVED strategies and how many have an SDL definition on their latest version", async () => {
+    const org = await seedOrganisation(db, { slug: "kpi-signal-overlap" });
+
+    const withDefinition = await seedStrategy(org, "PAPER_APPROVED");
+    await db.insert(strategyDefinitions).values({
+      id: generateId<string>(),
+      strategyVersionId: withDefinition,
+      definition: { signals: { longEntry: "a", shortEntry: "b" } },
+      definitionHash: "hash",
+    });
+
+    await seedStrategy(org, "PAPER_APPROVED"); // no definition row
+    await seedStrategy(org, "PINE_DEVELOPMENT"); // not PAPER_APPROVED — excluded entirely
+
+    const kpis = await getDashboardKpis(db, org.organisationId);
+    expect(kpis.portfolioResearch).toEqual({ paperApprovedStrategies: 2, withSdlDefinition: 1 });
+  });
+
+  it("counts backtest runs with a linked dataset and with at least one closed trade", async () => {
+    const org = await seedOrganisation(db, { slug: "kpi-validation-lab" });
+    const strategyVersionId = await seedStrategy(org, "PAPER_APPROVED");
+
+    const artefactId = generateId<string>();
+    const datasetVersionId = generateId<string>();
+    await db.insert(artefacts).values({
+      id: artefactId, organisationId: org.organisationId, objectKey: `test/${datasetVersionId}.csv`,
+      contentType: "text/csv", sizeBytes: 10, checksumSha256: "deadbeef", kind: "ohlcv_dataset",
+    });
+    await db.insert(datasetVersions).values({
+      id: datasetVersionId, organisationId: org.organisationId, symbol: "BTCUSD", timeframe: "1h",
+      fromTs: new Date("2024-01-01T00:00:00Z"), toTs: new Date("2024-01-02T00:00:00Z"),
+      barCount: 24, checksumSha256: "deadbeef", artefactId,
+    });
+
+    const withDatasetRunId = generateId<string>();
+    await db.insert(backtestRuns).values({
+      id: withDatasetRunId, strategyVersionId, runnerType: "LOCAL_RUNNER", runnerVersion: "test",
+      datasetVersionId, symbol: "BTCUSD", timeframe: "1h", segmentKind: "IN_SAMPLE",
+      fromTs: new Date("2024-01-01T00:00:00Z"), toTs: new Date("2024-01-02T00:00:00Z"),
+      costModel: {}, initialCapital: "10000", sourceHash: "hash", status: "SUCCEEDED",
+    });
+
+    const withClosedTradeRunId = generateId<string>();
+    await db.insert(backtestRuns).values({
+      id: withClosedTradeRunId, strategyVersionId, runnerType: "LOCAL_RUNNER", runnerVersion: "test",
+      symbol: "BTCUSD", timeframe: "1h", segmentKind: "IN_SAMPLE",
+      fromTs: new Date("2024-01-01T00:00:00Z"), toTs: new Date("2024-01-02T00:00:00Z"),
+      costModel: {}, initialCapital: "10000", sourceHash: "hash", status: "SUCCEEDED",
+    });
+    await db.insert(trades).values({
+      id: generateId<string>(), backtestRunId: withClosedTradeRunId, sequenceNumber: 1, direction: "LONG",
+      entryTime: new Date("2024-01-01T00:00:00Z"), exitTime: new Date("2024-01-01T01:00:00Z"),
+      entryPrice: "100", exitPrice: "101", quantity: "1", netPnl: "1",
+    });
+
+    // A third run with neither a dataset nor a closed trade — must not be counted in either bucket.
+    await db.insert(backtestRuns).values({
+      id: generateId<string>(), strategyVersionId, runnerType: "LOCAL_RUNNER", runnerVersion: "test",
+      symbol: "BTCUSD", timeframe: "1h", segmentKind: "IN_SAMPLE",
+      fromTs: new Date("2024-01-01T00:00:00Z"), toTs: new Date("2024-01-02T00:00:00Z"),
+      costModel: {}, initialCapital: "10000", sourceHash: "hash", status: "QUEUED",
+    });
+
+    const kpis = await getDashboardKpis(db, org.organisationId);
+    expect(kpis.validationLab).toEqual({ withBenchmarkDataset: 1, withClosedTrades: 1 });
   });
 });

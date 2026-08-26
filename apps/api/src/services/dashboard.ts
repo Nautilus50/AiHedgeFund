@@ -8,6 +8,23 @@ export interface DashboardKpis {
   backtestRuns: { total: number; byStatus: Record<string, number>; byRunnerType: Record<string, number> };
   datasets: { total: number };
   parity: { total: number; byStatus: Record<string, number> };
+  /**
+   * Coverage counts for Portfolio Research's signal-overlap panel (ADR
+   * 0011), not the overlap scores themselves — those are pairwise and
+   * organisation-scale, not a single number a KPI tile can honestly show.
+   * `withSdlDefinition` is how many of `paperApprovedStrategies` actually
+   * have a `strategy_definitions` row on their latest version and so can
+   * participate in a signal-overlap comparison at all.
+   */
+  portfolioResearch: { paperApprovedStrategies: number; withSdlDefinition: number };
+  /**
+   * Coverage counts for Validation Lab's per-run panels (ADR 0009), not
+   * their results — benchmark comparison and the Monte Carlo fan are each
+   * computed per backtest run, not aggregable into one organisation-wide
+   * number without misrepresenting them as a single portfolio-level
+   * result they were never designed to be.
+   */
+  validationLab: { withBenchmarkDataset: number; withClosedTrades: number };
 }
 
 /**
@@ -94,11 +111,49 @@ export async function getDashboardKpis(db: Database, organisationId: string): Pr
     parityTotal += row.total;
   }
 
+  // Same "latest version per strategy" LATERAL pattern as the workflow-state
+  // grouping above, restricted to PAPER_APPROVED (portfolio-research.ts's
+  // own eligibility filter) and left-joined against strategy_definitions to
+  // count how many of those also have an SDL document on file.
+  const signalOverlapRows = await db.execute<{ has_definition: boolean }>(sql`
+    SELECT (sd.id IS NOT NULL) AS has_definition
+    FROM strategies s
+    INNER JOIN LATERAL (
+      SELECT sv.id, sv.workflow_state
+      FROM strategy_versions sv
+      WHERE sv.strategy_id = s.id
+      ORDER BY sv.version_number DESC
+      LIMIT 1
+    ) latest ON true
+    LEFT JOIN strategy_definitions sd ON sd.strategy_version_id = latest.id
+    WHERE s.organisation_id = ${organisationId} AND latest.workflow_state = 'PAPER_APPROVED'
+  `);
+  const withSdlDefinition = signalOverlapRows.filter((row) => row.has_definition).length;
+
+  const [benchmarkDatasetRow] = await db.execute<{ total: number }>(sql`
+    SELECT COUNT(*)::int as total
+    FROM backtest_runs br
+    INNER JOIN strategy_versions sv ON sv.id = br.strategy_version_id
+    INNER JOIN strategies s ON s.id = sv.strategy_id
+    WHERE s.organisation_id = ${organisationId} AND br.dataset_version_id IS NOT NULL
+  `);
+
+  const [closedTradesRow] = await db.execute<{ total: number }>(sql`
+    SELECT COUNT(DISTINCT br.id)::int as total
+    FROM backtest_runs br
+    INNER JOIN strategy_versions sv ON sv.id = br.strategy_version_id
+    INNER JOIN strategies s ON s.id = sv.strategy_id
+    INNER JOIN trades t ON t.backtest_run_id = br.id AND t.exit_time IS NOT NULL
+    WHERE s.organisation_id = ${organisationId}
+  `);
+
   return {
     campaigns: { total: campaignCountRow?.total ?? 0 },
     strategies: { total: strategyTotal, byWorkflowState },
     backtestRuns: { total: backtestTotal, byStatus, byRunnerType },
     datasets: { total: datasetCountRow?.total ?? 0 },
     parity: { total: parityTotal, byStatus: parityByStatus },
+    portfolioResearch: { paperApprovedStrategies: signalOverlapRows.length, withSdlDefinition },
+    validationLab: { withBenchmarkDataset: benchmarkDatasetRow?.total ?? 0, withClosedTrades: closedTradesRow?.total ?? 0 },
   };
 }

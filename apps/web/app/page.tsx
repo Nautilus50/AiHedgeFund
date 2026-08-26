@@ -22,6 +22,8 @@ interface DashboardKpis {
   backtestRuns: { total: number; byStatus: Record<string, number>; byRunnerType: Record<string, number> };
   datasets: { total: number };
   parity: { total: number; byStatus: Record<string, number> };
+  portfolioResearch: { paperApprovedStrategies: number; withSdlDefinition: number };
+  validationLab: { withBenchmarkDataset: number; withClosedTrades: number };
 }
 
 interface RecentDecision {
@@ -159,6 +161,34 @@ export default async function CommandCentrePage() {
               <dd>
                 <BreakdownList counts={kpisResult.data.parity.byStatus} states={PARITY_STATUSES} kind="parity" />
               </dd>
+            </dl>
+          </CardBody>
+        )}
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Portfolio Research & Validation Lab coverage"
+          hint="Coverage counts only — how much evidence exists for these panels' analyses, not the analyses themselves (those are pairwise/per-run; see the linked pages)."
+        />
+        {"error" in kpisResult ? (
+          <CardBody>
+            <Alert tone="error">Could not load coverage counts. {kpisResult.error.message}</Alert>
+          </CardBody>
+        ) : (
+          <CardBody>
+            <dl className="dl">
+              <dt>
+                <Link href="/portfolio-research">Signal overlap</Link>
+              </dt>
+              <dd className="num">
+                {kpisResult.data.portfolioResearch.withSdlDefinition} of {kpisResult.data.portfolioResearch.paperApprovedStrategies}{" "}
+                PAPER_APPROVED strategies have an SDL definition on file
+              </dd>
+              <dt>Benchmark comparison</dt>
+              <dd className="num">{kpisResult.data.validationLab.withBenchmarkDataset} backtest runs have a linked dataset</dd>
+              <dt>Monte Carlo fan</dt>
+              <dd className="num">{kpisResult.data.validationLab.withClosedTrades} backtest runs have at least one closed trade</dd>
             </dl>
           </CardBody>
         )}
