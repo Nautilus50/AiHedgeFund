@@ -32,6 +32,11 @@ interface TradeContribution {
   cumulativePct: number;
 }
 
+interface BenchmarkComparisonPanel {
+  result: { strategyReturnPct: number; benchmarkReturnPct: number; excessReturnPct: number } | undefined;
+  reasonCode?: "NO_DATASET" | "NO_BARS_IN_WINDOW";
+}
+
 interface ValidationLabReport {
   computedAt: string;
   targetRunId: string;
@@ -39,6 +44,7 @@ interface ValidationLabReport {
   degradation: DegradationEntry[];
   tradeRemovalConcentration: { curve: TradeContribution[]; totalNetProfit: string; topN: number };
   directionalBreakdown: { long: SubsetMetrics; short: SubsetMetrics };
+  benchmarkComparison: BenchmarkComparisonPanel;
 }
 
 function pct(value: number | null, digits = 1): string {
@@ -55,8 +61,12 @@ const NOT_YET_BUILT = [
   "Symbol transfer — needs additional datasets for other markets",
   "Regime breakdown — BacktestSegmentKind has a REGIME value, but no regime classifier or producer exists anywhere in this repo yet",
   "Multiple-testing penalty — needs a real statistical correction methodology",
-  "Benchmark comparison — needs a benchmark data source this repo doesn't have",
 ];
+
+const BENCHMARK_REASON_TEXT: Record<NonNullable<BenchmarkComparisonPanel["reasonCode"]>, string> = {
+  NO_DATASET: "This run has no linked dataset — only a run created against a real OHLCV dataset can compute this.",
+  NO_BARS_IN_WINDOW: "The linked dataset has no bars inside this run's own [fromTs, toTs] window.",
+};
 
 export default async function ValidationLabPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -250,6 +260,29 @@ export default async function ValidationLabPage({ params }: { params: Promise<{ 
               </tbody>
             </table>
           </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHead
+          title="Benchmark comparison"
+          hint="Total return only, over the same symbol and window — buy at the first bar's open, hold to the last bar's close. No risk adjustment, no statistical significance, and the benchmark side is frictionless while the strategy side already includes costs. Did the strategy beat just holding the asset, nothing more."
+        />
+        <CardBody>
+          {report.benchmarkComparison.result ? (
+            <dl className="dl">
+              <dt>Strategy return</dt>
+              <dd className="num">{report.benchmarkComparison.result.strategyReturnPct.toFixed(2)}%</dd>
+              <dt>Buy-and-hold return</dt>
+              <dd className="num">{report.benchmarkComparison.result.benchmarkReturnPct.toFixed(2)}%</dd>
+              <dt>Excess (percentage points)</dt>
+              <dd className="num">{report.benchmarkComparison.result.excessReturnPct.toFixed(2)}</dd>
+            </dl>
+          ) : (
+            <EmptyState title="No benchmark available">
+              {report.benchmarkComparison.reasonCode ? BENCHMARK_REASON_TEXT[report.benchmarkComparison.reasonCode] : null}
+            </EmptyState>
+          )}
         </CardBody>
       </Card>
 

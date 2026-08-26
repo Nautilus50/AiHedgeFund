@@ -114,3 +114,39 @@ export function computeDegradation(baseline: SubsetMetrics, comparison: SubsetMe
 
   return { netProfitDegradationPct, profitFactorDegradationPct, winRateDegradationPct };
 }
+
+export interface BenchmarkComparisonResult {
+  /** The run's own realized return over its full window: netProfit / initialCapital * 100. Cost-inclusive, since netProfit already is. */
+  strategyReturnPct: number;
+  /** Buy-and-hold price return over the same window's first and last available bars: (exitPrice - entryPrice) / entryPrice * 100. Zero transaction cost assumed — a single entry and exit, unlike the strategy's own trade sequence. */
+  benchmarkReturnPct: number;
+  /** strategyReturnPct minus benchmarkReturnPct, in percentage points (not a relative %) — matching winRateDegradationPct's convention above, since both sides are already percentages. */
+  excessReturnPct: number;
+}
+
+/**
+ * Compares a run's own return against a buy-and-hold benchmark over the
+ * same symbol and window (spec §7.7's "benchmark comparison", the last item
+ * on ADR 0009's originally-unbuilt list — buildable now that ADR 0014 added
+ * real OHLCV data to source `benchmarkEntryPrice`/`benchmarkExitPrice`
+ * from). This answers "did the strategy beat just holding the asset?" and
+ * nothing more: no risk adjustment (a strategy with a lower return but far
+ * shallower drawdown is not "worse" by this number alone), no statistical
+ * significance, and the benchmark side assumes a single frictionless
+ * buy-and-hold trade while the strategy side is cost-inclusive — an
+ * asymmetry stated here, not smoothed over.
+ */
+export function computeBenchmarkComparison(
+  netProfit: string,
+  initialCapital: string,
+  benchmarkEntryPrice: number,
+  benchmarkExitPrice: number,
+): BenchmarkComparisonResult | undefined {
+  const capital = toDecimal(initialCapital);
+  if (capital.isZero() || benchmarkEntryPrice === 0) return undefined;
+
+  const strategyReturnPct = toDecimal(netProfit).dividedBy(capital).times(100).toNumber();
+  const benchmarkReturnPct = ((benchmarkExitPrice - benchmarkEntryPrice) / benchmarkEntryPrice) * 100;
+
+  return { strategyReturnPct, benchmarkReturnPct, excessReturnPct: strategyReturnPct - benchmarkReturnPct };
+}

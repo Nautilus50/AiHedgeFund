@@ -1,3 +1,4 @@
+import type { S3Client } from "@aws-sdk/client-s3";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Database } from "@arf-os/db";
@@ -23,6 +24,8 @@ import { getValidationLabReport } from "../services/validation-lab.js";
 
 export interface BacktestRunRouteDeps {
   db: Database;
+  s3: S3Client;
+  bucket: string;
 }
 
 /**
@@ -276,7 +279,7 @@ export function registerBacktestRunRoutes(app: FastifyInstance, deps: BacktestRu
       return;
     }
 
-    const result = await getValidationLabReport(deps.db, auth.organisationId, id, { topN });
+    const result = await getValidationLabReport(deps.db, deps.s3, deps.bucket, auth.organisationId, id, { topN });
     if (!result) return notFound(reply, request, id);
     reply.send(result);
   });

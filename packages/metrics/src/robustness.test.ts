@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeDegradation, computeDirectionalBreakdown, computeTradeRemovalConcentration } from "./robustness.js";
+import {
+  computeBenchmarkComparison,
+  computeDegradation,
+  computeDirectionalBreakdown,
+  computeTradeRemovalConcentration,
+} from "./robustness.js";
 import type { MetricsTrade } from "./types.js";
 import type { SubsetMetrics } from "./robustness.js";
 
@@ -117,5 +122,32 @@ describe("computeDegradation", () => {
     const noLosses: SubsetMetrics = { ...baseline, profitFactor: null };
     expect(computeDegradation(baseline, noLosses).profitFactorDegradationPct).toBeNull();
     expect(computeDegradation(noLosses, baseline).profitFactorDegradationPct).toBeNull();
+  });
+});
+
+describe("computeBenchmarkComparison", () => {
+  it("computes strategy and benchmark returns and their percentage-point gap — hand-calculated", () => {
+    // strategyReturnPct = 500/10000*100 = 5%. benchmarkReturnPct = (110-100)/100*100 = 10%.
+    // excessReturnPct = 5 - 10 = -5 (strategy underperformed buy-and-hold by 5 points).
+    const result = computeBenchmarkComparison("500.00000000", "10000.00000000", 100, 110);
+    expect(result?.strategyReturnPct).toBeCloseTo(5, 6);
+    expect(result?.benchmarkReturnPct).toBeCloseTo(10, 6);
+    expect(result?.excessReturnPct).toBeCloseTo(-5, 6);
+  });
+
+  it("reports the strategy beating a falling benchmark as a positive excess", () => {
+    // strategyReturnPct = 200/1000*100 = 20%. benchmarkReturnPct = (90-100)/100*100 = -10%.
+    const result = computeBenchmarkComparison("200.00000000", "1000.00000000", 100, 90);
+    expect(result?.strategyReturnPct).toBeCloseTo(20, 6);
+    expect(result?.benchmarkReturnPct).toBeCloseTo(-10, 6);
+    expect(result?.excessReturnPct).toBeCloseTo(30, 6);
+  });
+
+  it("returns undefined when initialCapital is zero — no return is defined to divide by", () => {
+    expect(computeBenchmarkComparison("100.00000000", "0.00000000", 100, 110)).toBeUndefined();
+  });
+
+  it("returns undefined when the benchmark entry price is zero", () => {
+    expect(computeBenchmarkComparison("100.00000000", "1000.00000000", 0, 110)).toBeUndefined();
   });
 });

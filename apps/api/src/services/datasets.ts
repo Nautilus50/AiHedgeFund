@@ -3,9 +3,9 @@ import { and, eq, gt, or } from "drizzle-orm";
 import { generateId, sha256Hex } from "@arf-os/contracts";
 import type { Database } from "@arf-os/db";
 import { artefacts, datasetVersions } from "@arf-os/db";
-import { parseOhlcvCsv } from "@arf-os/pine";
+import { parseOhlcvCsv, type Bar } from "@arf-os/pine";
 import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
-import { buildDatasetKey, putObject } from "./object-store.js";
+import { buildDatasetKey, fetchObject, putObject } from "./object-store.js";
 
 /**
  * Looks up a `dataset_versions` row that already covers the exact same
@@ -110,6 +110,39 @@ export async function createDatasetVersion(
   });
 
   return { datasetVersionId };
+}
+
+/**
+ * Reads a dataset version's bars back out of object storage — the read
+ * side of {@link createDatasetVersion}, needed by Validation Lab's
+ * benchmark-comparison panel (ADR 0009) to source real buy-and-hold prices.
+ * Organisation-scoped through the same `dataset_versions` row a
+ * `backtest_runs.dataset_version_id` points at; returns undefined for a
+ * missing/foreign dataset version or a CSV that fails to parse, rather than
+ * throwing — the caller treats either as "no benchmark data available",
+ * never a hard failure of the report around it.
+ */
+export async function loadDatasetBars(
+  db: Database,
+  s3: S3Client,
+  bucket: string,
+  organisationId: string,
+  datasetVersionId: string,
+): Promise<Bar[] | undefined> {
+  const [row] = await db
+    .select({ objectKey: artefacts.objectKey })
+    .from(datasetVersions)
+    .innerJoin(artefacts, eq(artefacts.id, datasetVersions.artefactId))
+    .where(and(eq(datasetVersions.id, datasetVersionId), eq(datasetVersions.organisationId, organisationId)))
+    .limit(1);
+
+  if (!row) return undefined;
+
+  const { bytes } = await fetchObject(s3, bucket, row.objectKey);
+  const parsed = parseOhlcvCsv(new TextDecoder().decode(bytes));
+  if (!parsed.ok) return undefined;
+
+  return parsed.bars;
 }
 
 export interface ListDatasetVersionsInput {

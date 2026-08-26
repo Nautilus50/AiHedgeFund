@@ -26,7 +26,7 @@ export interface ApiDeps {
 
 export function registerRoutes(app: FastifyInstance, deps: ApiDeps): void {
   registerAlgoLibraryRoutes(app, { db: deps.db });
-  registerBacktestRunRoutes(app, { db: deps.db });
+  registerBacktestRunRoutes(app, { db: deps.db, s3: deps.s3, bucket: deps.bucket });
   registerCampaignRoutes(app, { db: deps.db });
   registerCommitteeQueueRoutes(app, { db: deps.db });
   registerDashboardRoutes(app, { db: deps.db });
