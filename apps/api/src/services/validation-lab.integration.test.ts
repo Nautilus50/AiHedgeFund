@@ -1,3 +1,4 @@
+import type { S3Client } from "@aws-sdk/client-s3";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { generateId } from "@arf-os/contracts";
 import {
@@ -15,6 +16,14 @@ import {
 import { getValidationLabReport } from "./validation-lab.js";
 
 const available = await isTestDatabaseAvailable();
+
+// None of the runs `seedRun` below creates ever get a datasetVersionId, so
+// `getValidationLabReport`'s benchmark-comparison branch that touches S3
+// (`loadDatasetBars`) is never reached on this suite's paths — a stub is
+// safe here. Benchmark comparison's S3 path has its own coverage in
+// validation-lab.test.ts (pure, no DB/S3 needed) and datasets.integration.test.ts.
+const s3Stub = {} as S3Client;
+const bucket = "test-bucket";
 
 describe.skipIf(!available)("validation lab (integration)", () => {
   let db: Database;
@@ -84,8 +93,8 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     const strategy: SeededStrategy = await seedStrategyVersion(db, alpha);
     const backtestRunId = await seedRun(strategy.strategyVersionId);
 
-    expect(await getValidationLabReport(db, beta.organisationId, backtestRunId)).toBeUndefined();
-    expect(await getValidationLabReport(db, alpha.organisationId, backtestRunId)).toBeDefined();
+    expect(await getValidationLabReport(db, s3Stub, bucket, beta.organisationId, backtestRunId)).toBeUndefined();
+    expect(await getValidationLabReport(db, s3Stub, bucket, alpha.organisationId, backtestRunId)).toBeDefined();
   });
 
   it("echoes the target run id and a computedAt timestamp", async () => {
@@ -94,7 +103,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     const backtestRunId = await seedRun(strategy.strategyVersionId);
     await seedTrades(backtestRunId, [10, -5]);
 
-    const report = await getValidationLabReport(db, org.organisationId, backtestRunId);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, backtestRunId);
     expect(report?.targetRunId).toBe(backtestRunId);
     expect(report?.computedAt).toBeTruthy();
     expect(new Date(report?.computedAt ?? "").getTime()).not.toBeNaN();
@@ -106,7 +115,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     const target = await seedRun(strategy.strategyVersionId, { segmentKind: "IN_SAMPLE", symbol: "BTCUSD" });
     await seedRun(strategy.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE", symbol: "ETHUSD" });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.degradation).toEqual([]);
   });
 
@@ -116,7 +125,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     const target = await seedRun(strategy.strategyVersionId, { segmentKind: "IN_SAMPLE", timeframe: "60" });
     await seedRun(strategy.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE", timeframe: "240" });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.degradation).toEqual([]);
   });
 
@@ -127,7 +136,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     await seedRun(strategy.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE", status: "FAILED_TERMINAL" });
     await seedRun(strategy.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE", status: "QUEUED" });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.degradation).toEqual([]);
   });
 
@@ -144,7 +153,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
       createdAt: new Date("2024-06-01T00:00:00Z"),
     });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.degradation.map((d) => d.siblingRunId)).toEqual([newer, older]);
   });
 
@@ -153,7 +162,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     const strategy = await seedStrategyVersion(db, org);
     const target = await seedRun(strategy.strategyVersionId, { segmentKind: "IN_SAMPLE" });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.degradation).toEqual([]);
   });
 
@@ -164,7 +173,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     await seedRun(strategy.strategyVersionId, { segmentKind: "IN_SAMPLE", status: "SUCCEEDED" });
     await seedRun(strategy.strategyVersionId, { segmentKind: "OUT_OF_SAMPLE", status: "FAILED_TERMINAL" });
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     const distribution = new Map(report?.segmentDistribution.map((r) => [`${r.segmentKind}:${r.status}`, r.total]));
     expect(distribution.get("IN_SAMPLE:SUCCEEDED")).toBe(2);
     expect(distribution.get("OUT_OF_SAMPLE:FAILED_TERMINAL")).toBe(1);
@@ -177,7 +186,7 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     // LONG +100, SHORT -10, LONG +50, SHORT -10 -> total net profit 130.
     await seedTrades(target, [100, -10, 50, -10]);
 
-    const report = await getValidationLabReport(db, org.organisationId, target);
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
     expect(report?.tradeRemovalConcentration.totalNetProfit).toBe("130.00000000");
     expect(report?.tradeRemovalConcentration.curve.map((c) => c.tradeNumber)).toEqual([1, 3, 2, 4]);
     expect(report?.directionalBreakdown.long.netProfit).toBe("150.00000000");

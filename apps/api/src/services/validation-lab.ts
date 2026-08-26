@@ -1,10 +1,13 @@
+import type { S3Client } from "@aws-sdk/client-s3";
 import { and, count, desc, eq, inArray, ne } from "drizzle-orm";
 import {
+  computeBenchmarkComparison,
   computeDegradation,
   computeDirectionalBreakdown,
   computeTradeRemovalConcentration,
   calculateCoreMetrics,
   toSubsetMetrics,
+  type BenchmarkComparisonResult,
   type DegradationResult,
   type DirectionalBreakdown,
   type MetricsTrade,
@@ -12,8 +15,10 @@ import {
 } from "@arf-os/metrics";
 import type { Database } from "@arf-os/db";
 import { backtestRuns, strategies, strategyVersions } from "@arf-os/db";
+import type { Bar } from "@arf-os/pine";
 import { getTrades } from "./backtest-evidence.js";
 import { getBacktestRun } from "./backtest-runs.js";
+import { loadDatasetBars } from "./datasets.js";
 
 /**
  * Which segment kinds count as a meaningful in-sample/out-of-sample
@@ -56,6 +61,40 @@ export interface SegmentDistributionRow {
   total: number;
 }
 
+export interface BenchmarkComparisonPanel {
+  result: BenchmarkComparisonResult | undefined;
+  reasonCode?: "NO_DATASET" | "NO_BARS_IN_WINDOW";
+}
+
+/**
+ * Picks the buy-and-hold entry/exit prices for a benchmark comparison: the
+ * open of the first bar and the close of the last bar whose `time` falls
+ * inside `[fromTs, toTs]` — a single frictionless trade spanning the run's
+ * own window, not a resampled or interpolated price series. Pure and
+ * exported for direct unit testing (no S3/DB needed), separate from
+ * {@link loadDatasetBars}'s IO. `bars` need not be pre-sorted; `parseOhlcvCsv`
+ * already sorts ascending by time, but this doesn't assume its caller does.
+ */
+export function resolveBenchmarkComparison(
+  bars: readonly Bar[],
+  fromTs: Date,
+  toTs: Date,
+  netProfit: string,
+  initialCapital: string,
+): BenchmarkComparisonPanel {
+  const fromIso = fromTs.toISOString();
+  const toIso = toTs.toISOString();
+  const inWindow = [...bars].filter((bar) => bar.time >= fromIso && bar.time <= toIso).sort((a, b) => a.time.localeCompare(b.time));
+
+  const firstBar = inWindow[0];
+  const lastBar = inWindow[inWindow.length - 1];
+  if (!firstBar || !lastBar) {
+    return { result: undefined, reasonCode: "NO_BARS_IN_WINDOW" };
+  }
+
+  return { result: computeBenchmarkComparison(netProfit, initialCapital, firstBar.open, lastBar.close) };
+}
+
 export interface ValidationLabReport {
   computedAt: string;
   targetRunId: string;
@@ -63,6 +102,7 @@ export interface ValidationLabReport {
   degradation: SiblingComparison[];
   tradeRemovalConcentration: TradeRemovalConcentration & { topN: number };
   directionalBreakdown: DirectionalBreakdown;
+  benchmarkComparison: BenchmarkComparisonPanel;
 }
 
 /**
@@ -73,6 +113,8 @@ export interface ValidationLabReport {
  */
 export async function getValidationLabReport(
   db: Database,
+  s3: S3Client,
+  bucket: string,
   organisationId: string,
   backtestRunId: string,
   options: { topN?: number | undefined } = {},
@@ -85,6 +127,14 @@ export async function getValidationLabReport(
   const targetTradeRows = await getTrades(db, organisationId, backtestRunId);
   const targetTrades = toMetricsTrades(targetTradeRows ?? []);
   const targetSubsetMetrics = toSubsetMetrics(calculateCoreMetrics(targetTrades));
+
+  let benchmarkComparison: BenchmarkComparisonPanel = { result: undefined, reasonCode: "NO_DATASET" };
+  if (target.datasetVersionId) {
+    const bars = await loadDatasetBars(db, s3, bucket, organisationId, target.datasetVersionId);
+    benchmarkComparison = bars
+      ? resolveBenchmarkComparison(bars, target.fromTs, target.toTs, targetSubsetMetrics.netProfit, target.initialCapital)
+      : { result: undefined, reasonCode: "NO_BARS_IN_WINDOW" };
+  }
 
   const comparisonKinds = comparisonSegmentKinds(target.segmentKind);
   const siblings =
@@ -140,5 +190,6 @@ export async function getValidationLabReport(
     degradation,
     tradeRemovalConcentration: { ...computeTradeRemovalConcentration(targetTrades), topN },
     directionalBreakdown: computeDirectionalBreakdown(targetTrades),
+    benchmarkComparison,
   };
 }

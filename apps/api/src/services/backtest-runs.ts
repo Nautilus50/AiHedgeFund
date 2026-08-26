@@ -109,6 +109,7 @@ export async function getBacktestRun(db: Database, organisationId: string, backt
       runnerType: backtestRuns.runnerType,
       runnerVersion: backtestRuns.runnerVersion,
       verificationId: backtestRuns.verificationId,
+      datasetVersionId: backtestRuns.datasetVersionId,
       symbol: backtestRuns.symbol,
       timeframe: backtestRuns.timeframe,
       segmentKind: backtestRuns.segmentKind,

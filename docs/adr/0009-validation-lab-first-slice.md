@@ -75,6 +75,27 @@ repo's initial scaffolding, with only its *gate* added later — that's preceden
 lag its state," not for "evidence UI can exist with no state at all." This slice's
 justification stands on its own for that reason, not on a precedent that doesn't quite hold.
 
+### Benchmark comparison — added 2026-08-26, once real price data existed
+
+Added after this ADR's initial acceptance. Originally listed below as unbuilt for a concrete
+reason: no benchmark price source existed anywhere in this repo. ADR 0014 (real OHLCV
+ingestion) closed that gap, so `getValidationLabReport` now computes a buy-and-hold comparison
+over the target run's own `[fromTs, toTs]` window when the run has a linked
+`datasetVersionId`: `loadDatasetBars` (`apps/api/src/services/datasets.ts`) reads that
+dataset's bars back out of object storage (the read side of `createDatasetVersion`), and the
+pure `resolveBenchmarkComparison` (`apps/api/src/services/validation-lab.ts`) picks the first
+in-window bar's open and the last in-window bar's close as a single frictionless buy-and-hold
+trade, then `computeBenchmarkComparison` (`packages/metrics/src/robustness.ts`) turns that into
+`strategyReturnPct` (netProfit / initialCapital, cost-inclusive since netProfit already is),
+`benchmarkReturnPct`, and their percentage-point `excessReturnPct` gap. Two honesty points
+stated in both the methodology hint and here, not just implied: this compares **total return
+only** — no risk adjustment, so a strategy with a lower return but a far shallower drawdown
+does not read as "worse" from this number alone — and it carries a stated **asymmetry**, since
+the benchmark side assumes one frictionless trade while the strategy side already nets out its
+own costs. A run with no linked dataset, or a dataset whose bars don't cover the run's window,
+reports `result: undefined` with a `reasonCode` (`NO_DATASET` / `NO_BARS_IN_WINDOW`) rather than
+a zero or a fabricated comparison.
+
 ## Alternatives considered
 
 **Pick a single "the" IS/OOS comparison (e.g. most recent OOS run) instead of returning every
@@ -102,10 +123,11 @@ queries `backtestRuns`/`strategyVersions`/`strategies` directly instead.
 - Remaining unbuilt (per §7.7/§15.8, listed explicitly on the new page itself, not just here):
   parameter stability heatmap, neighbourhood survival, Monte Carlo fan, cost/slippage
   sensitivity, entry delay, missed-trade simulation, start-date sensitivity, symbol transfer,
-  regime breakdown, multiple-testing penalty, benchmark comparison. Local-vs-TradingView parity
-  and the repainting review are not re-listed as gaps — parity already exists (the Parity panel
-  on the backtest-run page); repainting review has no dedicated UI yet but is a Pine-lint-time
-  concept (`packages/pine`), not a robustness-test-time one.
+  regime breakdown, multiple-testing penalty. Local-vs-TradingView parity and the repainting
+  review are not re-listed as gaps — parity already exists (the Parity panel on the
+  backtest-run page); repainting review has no dedicated UI yet but is a Pine-lint-time concept
+  (`packages/pine`), not a robustness-test-time one. Benchmark comparison, listed here
+  originally as unbuilt, was added 2026-08-26 — see Decision above.
 
 ## Security implications
 
@@ -114,9 +136,14 @@ sibling run from the already-ownership-checked target run (`getBacktestRun`) and
 a second, client-supplied run id — so no additional `backtestRunBelongsToOrg` check is needed
 anywhere in this service. If a future slice ever lets a user pick which run to compare against
 explicitly, that id needs its own ownership check — it doesn't fall out of this design
-automatically.
+automatically. `loadDatasetBars` (benchmark comparison) reads `target.datasetVersionId`, itself
+only ever populated by `createBacktestRun` under the caller's own organisation — but
+`loadDatasetBars` re-scopes to `organisationId` in its own query rather than trusting that,
+matching this ADR's existing pattern of never trusting a foreign-key value alone for isolation.
 
 ## Migration/rollback
 
 None — no schema change. Rollback is deleting the new route, service, page, and
-`packages/metrics/src/robustness.ts`; nothing else depends on them.
+`packages/metrics/src/robustness.ts`; nothing else depends on them. Benchmark comparison's
+`loadDatasetBars` (`apps/api/src/services/datasets.ts`) is additive to that same file and safe
+to delete alongside it without touching `createDatasetVersion` or anything else there.
