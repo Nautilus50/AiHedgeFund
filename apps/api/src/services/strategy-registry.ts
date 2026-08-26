@@ -6,6 +6,7 @@ import {
   strategies,
   strategyDefinitions,
   strategyLineage,
+  strategyReadModels,
   strategyVersions,
 } from "@arf-os/db";
 import { buildPage, clampPageSize, decodeCursor, type Page } from "../lib/pagination.js";
@@ -399,26 +400,57 @@ export async function listStrategies(
     return { ok: true, page: { items: [], nextCursor: page.nextCursor } };
   }
 
-  const versionRows = await db
+  type LatestVersion = { id: string; versionNumber: number; workflowState: string };
+  const latestByStrategy = new Map<string, LatestVersion>();
+
+  // strategy_read_models is exactly this: "latest version + workflow state
+  // per strategy", kept refreshed off strategy_version.transitioned and
+  // committee_decision.created (packages/db/src/schema/read-models.ts). Read
+  // it first so the common case skips the live join entirely.
+  const readModelRows = await db
     .select({
-      strategyId: strategyVersions.strategyId,
-      id: strategyVersions.id,
-      versionNumber: strategyVersions.versionNumber,
-      workflowState: strategyVersions.workflowState,
+      strategyId: strategyReadModels.strategyId,
+      id: strategyReadModels.latestVersionId,
+      versionNumber: strategyReadModels.latestVersionNumber,
+      workflowState: strategyReadModels.workflowState,
     })
-    .from(strategyVersions)
+    .from(strategyReadModels)
     .where(
       inArray(
-        strategyVersions.strategyId,
+        strategyReadModels.strategyId,
         page.items.map((s) => s.id),
       ),
     );
+  for (const row of readModelRows) {
+    latestByStrategy.set(row.strategyId, { id: row.id, versionNumber: row.versionNumber, workflowState: row.workflowState });
+  }
 
-  const latestByStrategy = new Map<string, (typeof versionRows)[number]>();
-  for (const version of versionRows) {
-    const existing = latestByStrategy.get(version.strategyId);
-    if (!existing || version.versionNumber > existing.versionNumber) {
-      latestByStrategy.set(version.strategyId, version);
+  // A strategy has no read-model row until its first workflow transition —
+  // handleReadModelRefresh only runs off strategy_version.transitioned /
+  // committee_decision.created, and createStrategy emits neither. Without
+  // this fallback a strategy created moments ago (still CAMPAIGN_BACKLOG)
+  // would silently vanish from its own organisation's Strategy Library.
+  const missingIds = page.items.map((s) => s.id).filter((id) => !latestByStrategy.has(id));
+  if (missingIds.length > 0) {
+    const versionRows = await db
+      .select({
+        strategyId: strategyVersions.strategyId,
+        id: strategyVersions.id,
+        versionNumber: strategyVersions.versionNumber,
+        workflowState: strategyVersions.workflowState,
+      })
+      .from(strategyVersions)
+      .where(inArray(strategyVersions.strategyId, missingIds));
+
+    for (const version of versionRows) {
+      const existing = latestByStrategy.get(version.strategyId);
+      if (!existing || version.versionNumber > existing.versionNumber) {
+        latestByStrategy.set(version.strategyId, {
+          id: version.id,
+          versionNumber: version.versionNumber,
+          workflowState: version.workflowState,
+        });
+      }
     }
   }
 
