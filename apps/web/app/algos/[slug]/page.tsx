@@ -6,7 +6,7 @@ import { Badge } from "../../../components/Badge";
 import { Alert, Card, CardBody, CardHead, EmptyState, Timestamp } from "../../../components/primitives";
 import { apiFetchSafe } from "../../../lib/api";
 import { getAlgo, getAlgoSource } from "../../../lib/algo-library";
-import { PublishAlgoButton, RetireAlgoButton } from "./LifecycleActions";
+import { PublishAlgoButton, RefreshForwardEvidenceButton, RetireAlgoButton } from "./LifecycleActions";
 
 const STATUS_TONE = { DRAFT: "neutral", PUBLISHED: "ok", RETIRED: "warn" } as const;
 
@@ -30,6 +30,7 @@ export default async function AlgoDetailPage({ params }: { params: Promise<{ slu
   const hasRelease = Boolean(algo.currentRelease);
   const hasEvidence = algo.snapshots.length > 0;
   const canPublish = hasRelease && hasEvidence;
+  const forwardSnapshot = algo.snapshots.find((snapshot) => snapshot.scope === "FORWARD_PAPER");
 
   return (
     <>
@@ -87,6 +88,15 @@ export default async function AlgoDetailPage({ params }: { params: Promise<{ slu
         <CardHead
           title="Evidence"
           hint="Every figure is recomputed from the trade ledger of the run named below — never copied from a runner summary."
+          actions={
+            canManage && algo.currentRelease && forwardSnapshot ? (
+              <RefreshForwardEvidenceButton
+                releaseId={algo.currentRelease.releaseId}
+                forwardDeploymentId={forwardSnapshot.sourceId}
+                slug={slug}
+              />
+            ) : undefined
+          }
         />
         <CardBody>
           <AlgoEvidence snapshots={algo.snapshots} />
