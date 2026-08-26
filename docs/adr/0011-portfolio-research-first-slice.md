@@ -16,7 +16,9 @@ have: a tagging/family system, real liquidity/ADV data, or a real stress-test/ri
 methodology this session won't improvise. This slice builds what's genuinely computable from
 existing `backtest_runs`/`trades`/`equity_points`/`drawdown_points` data for an organisation's
 PAPER_APPROVED strategies: return correlation, drawdown correlation, exposure overlap, market
-concentration, and turnover/fee concentration.
+concentration, and turnover/fee concentration. Signal overlap was added later (2026-08-26,
+see Decision) once a genuinely honest, non-improvised methodology existed for it: textual, not
+semantic, similarity — see below.
 
 **A Plan-agent review caught a real correctness bug in the original design**, not just a
 soundness nuance, and it shaped everything below: `equity_points`/`drawdown_points` are
@@ -115,6 +117,25 @@ with the organisation clause**, never a separate post-filter step. ADR 0009's ow
 "Consequences" section named this exact risk for a future slice that lets a caller supply ids;
 this is where it's resolved, not left open again.
 
+### Signal overlap — textual, not semantic, added 2026-08-26
+
+Added after this ADR's initial acceptance, once nothing else on the "remaining unbuilt" list
+below had a workable methodology to lean on: a per-pair **token-set Jaccard similarity**
+(`computeSignalOverlap`, `packages/metrics/src/portfolio.ts`) over each strategy's SDL
+`signals.longEntry` + `signals.shortEntry` expressions (`strategy_definitions.definition`,
+one optional row per strategy version), lowercased and split on non-identifier characters.
+This is explicitly **textual, not semantic** similarity, stated in the same
+`methodologyNote` the rest of this feature uses: two strategies with differently-worded but
+functionally identical logic score low, and two unrelated strategies that happen to share
+common terms (both reference `rsi` and `cross`) score higher than their real overlap. It is a
+prompt to go read both definitions side by side, never a verdict on its own — no attempt is
+made at parsing or understanding the expression, matching the "no indicator/entry-condition
+introspection exists anywhere in this repo" blocker this ADR originally recorded for this
+item. `strategy_definitions` has no required relationship to `strategy_versions` (a version
+can exist with no definition row), so a missing or malformed `signals` shape on either side of
+a pair reports `signalOverlap: undefined` rather than failing the report or silently scoring
+zero — the UI renders this as "no definition on file", distinct from a real 0% score.
+
 ### Turnover/fee concentration — quote-currency assumption stated, not fixed
 
 `quantity * entryPrice` is quote-currency notional, which already solves the price-scale
@@ -142,11 +163,11 @@ pair has an unbounded number of possible comparisons with no way to pick which t
 
 ## Consequences
 
-- Remaining unbuilt (listed explicitly on the page itself, not just here): signal overlap (no
-  indicator/entry-condition introspection exists anywhere in this repo), strategy-family
+- Remaining unbuilt (listed explicitly on the page itself, not just here): strategy-family
   concentration (no tagging system), capacity assumptions (no liquidity/ADV data),
   portfolio-level stress tests, risk-budget proposals, strategy redundancy/replacement
-  analysis (all need real methodology this session won't improvise).
+  analysis (all need real methodology this session won't improvise). Signal overlap, listed
+  here originally as unbuilt, was added 2026-08-26 — see Decision above.
 - If a future slice adds a real quote-currency field to `backtest_runs`/`symbol`, the
   turnover-concentration assumption documented above should be revisited and either verified
   or the metric restricted to same-currency subsets.

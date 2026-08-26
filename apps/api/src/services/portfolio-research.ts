@@ -1,20 +1,22 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@arf-os/db";
-import { backtestRuns } from "@arf-os/db";
+import { backtestRuns, strategyDefinitions } from "@arf-os/db";
 import {
   computeExposureOverlap,
   computeSeriesCorrelation,
+  computeSignalOverlap,
   toDailyDrawdownSeries,
   toDailyEquitySeries,
   toDecimal,
   toReturnSeries,
   type ExposureOverlapResult,
   type SeriesCorrelationResult,
+  type SignalOverlapResult,
 } from "@arf-os/metrics";
 import { getDrawdownCurve, getEquityCurve, getTrades } from "./backtest-evidence.js";
 
 const METHODOLOGY_NOTE =
-  "Return and drawdown correlation are computed from trade-close events, not fixed daily bars — equity only updates when a trade closes, so this measures correlation of realized P&L timing, never correlation of held exposure (an open position is never marked to market between closes). Rank (Spearman) correlation is used for both, not Pearson: equity returns here are irregular-period (the gap between two consecutive readings varies), and drawdown levels are strongly serially autocorrelated — both undermine Pearson's assumptions. A pair with fewer than 10 overlapping days reports no coefficient rather than an unreliable one. Turnover/fee concentration assumes every selected strategy's symbol is quoted in the same currency — unverified by the schema, since no quote-currency field exists.";
+  "Return and drawdown correlation are computed from trade-close events, not fixed daily bars — equity only updates when a trade closes, so this measures correlation of realized P&L timing, never correlation of held exposure (an open position is never marked to market between closes). Rank (Spearman) correlation is used for both, not Pearson: equity returns here are irregular-period (the gap between two consecutive readings varies), and drawdown levels are strongly serially autocorrelated — both undermine Pearson's assumptions. A pair with fewer than 10 overlapping days reports no coefficient rather than an unreliable one. Turnover/fee concentration assumes every selected strategy's symbol is quoted in the same currency — unverified by the schema, since no quote-currency field exists. Signal overlap is a textual similarity score between each pair of strategies' entry/exit condition expressions (SDL signals.longEntry / signals.shortEntry). It does NOT understand what the conditions mean — two strategies with differently-worded but functionally identical logic will score low, and two unrelated strategies that happen to share common terms (e.g. both reference 'rsi' and 'cross') will score higher than their real overlap. Treat this as a prompt to go read both definitions yourself, not as a verdict.";
 
 interface SelectedStrategy {
   strategyId: string;
@@ -118,6 +120,8 @@ export interface PairCorrelation {
   returnCorrelation: SeriesCorrelationResult;
   drawdownCorrelation: SeriesCorrelationResult;
   exposureOverlap: ExposureOverlapResult;
+  /** Undefined when either strategy version has no strategy_definitions row yet (definitions are optional/asynchronous relative to the version itself). */
+  signalOverlap: SignalOverlapResult | undefined;
   /** True when the two strategies' representative runs come from different segmentKind tiers — a viewer shouldn't have to cross-reference two strings to notice they're comparing in-sample against out-of-sample evidence. */
   evidenceTierMismatch: boolean;
 }
@@ -151,6 +155,41 @@ interface StrategyTradeAndCurveData {
   dailyEquity: Map<string, number>;
   dailyDrawdown: Map<string, number>;
   trades: { entryTime: Date; exitTime: Date; quantity: string; entryPrice: string; fees: string }[];
+}
+
+/**
+ * Definitions are optional relative to the version they describe (nothing
+ * requires a strategy_definitions row to exist), so a missing or
+ * malformed `signals` shape returns undefined rather than throwing — the
+ * pair simply reports no signal overlap instead of failing the whole
+ * report over one strategy's incomplete data.
+ */
+function extractSignalExpressions(definition: unknown): { longEntry: string; shortEntry: string } | undefined {
+  if (typeof definition !== "object" || definition === null) return undefined;
+  const signals = (definition as { signals?: unknown }).signals;
+  if (typeof signals !== "object" || signals === null) return undefined;
+  const { longEntry, shortEntry } = signals as { longEntry?: unknown; shortEntry?: unknown };
+  if (typeof longEntry !== "string" || typeof shortEntry !== "string") return undefined;
+  return { longEntry, shortEntry };
+}
+
+async function resolveSignalExpressions(
+  db: Database,
+  strategyVersionIds: string[],
+): Promise<Map<string, { longEntry: string; shortEntry: string }>> {
+  if (strategyVersionIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({ strategyVersionId: strategyDefinitions.strategyVersionId, definition: strategyDefinitions.definition })
+    .from(strategyDefinitions)
+    .where(inArray(strategyDefinitions.strategyVersionId, strategyVersionIds));
+
+  const result = new Map<string, { longEntry: string; shortEntry: string }>();
+  for (const row of rows) {
+    const signals = extractSignalExpressions(row.definition);
+    if (signals) result.set(row.strategyVersionId, signals);
+  }
+  return result;
 }
 
 /**
@@ -196,6 +235,11 @@ export async function getPortfolioCorrelationReport(
     });
   }
 
+  const signalsByStrategyVersion = await resolveSignalExpressions(
+    db,
+    evidence.map((e) => e.strategyVersionId),
+  );
+
   const pairCorrelations: PairCorrelation[] = [];
   for (let i = 0; i < evidence.length; i++) {
     for (let j = i + 1; j < evidence.length; j++) {
@@ -206,12 +250,16 @@ export async function getPortfolioCorrelationReport(
       const dataB = dataByStrategyVersion.get(b.strategyVersionId);
       if (!dataA || !dataB) continue;
 
+      const signalsA = signalsByStrategyVersion.get(a.strategyVersionId);
+      const signalsB = signalsByStrategyVersion.get(b.strategyVersionId);
+
       pairCorrelations.push({
         strategyAId: a.strategyId,
         strategyBId: b.strategyId,
         returnCorrelation: computeSeriesCorrelation(toReturnSeries(dataA.dailyEquity), toReturnSeries(dataB.dailyEquity)),
         drawdownCorrelation: computeSeriesCorrelation(dataA.dailyDrawdown, dataB.dailyDrawdown),
         exposureOverlap: computeExposureOverlap(dataA.trades, dataB.trades),
+        signalOverlap: signalsA && signalsB ? computeSignalOverlap(signalsA, signalsB) : undefined,
         evidenceTierMismatch: a.segmentKind !== b.segmentKind,
       });
     }
