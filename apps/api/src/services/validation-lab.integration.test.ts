@@ -192,4 +192,25 @@ describe.skipIf(!available)("validation lab (integration)", () => {
     expect(report?.directionalBreakdown.long.netProfit).toBe("150.00000000");
     expect(report?.directionalBreakdown.short.netProfit).toBe("-20.00000000");
   });
+
+  it("computes a Monte Carlo fan from the target run's own closed trades", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org);
+    const target = await seedRun(strategy.strategyVersionId);
+    await seedTrades(target, [100, -10, 50, -10]);
+
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
+    expect(report?.monteCarloFan).toBeDefined();
+    expect(report?.monteCarloFan?.iterations).toBeGreaterThan(0);
+    expect(report?.monteCarloFan?.finalReturnPct.p5).toBeLessThanOrEqual(report?.monteCarloFan?.finalReturnPct.p95 ?? 0);
+  });
+
+  it("reports monteCarloFan as undefined for a run with no closed trades yet", async () => {
+    const org = await seedOrganisation(db);
+    const strategy = await seedStrategyVersion(db, org);
+    const target = await seedRun(strategy.strategyVersionId);
+
+    const report = await getValidationLabReport(db, s3Stub, bucket, org.organisationId, target);
+    expect(report?.monteCarloFan).toBeUndefined();
+  });
 });

@@ -4,6 +4,7 @@ import {
   computeBenchmarkComparison,
   computeDegradation,
   computeDirectionalBreakdown,
+  computeMonteCarloFan,
   computeTradeRemovalConcentration,
   calculateCoreMetrics,
   toSubsetMetrics,
@@ -11,6 +12,7 @@ import {
   type DegradationResult,
   type DirectionalBreakdown,
   type MetricsTrade,
+  type MonteCarloFanResult,
   type TradeRemovalConcentration,
 } from "@arf-os/metrics";
 import type { Database } from "@arf-os/db";
@@ -103,6 +105,8 @@ export interface ValidationLabReport {
   tradeRemovalConcentration: TradeRemovalConcentration & { topN: number };
   directionalBreakdown: DirectionalBreakdown;
   benchmarkComparison: BenchmarkComparisonPanel;
+  /** Undefined for a run with no closed trades yet — a fan needs at least one outcome to resample from. */
+  monteCarloFan: MonteCarloFanResult | undefined;
 }
 
 /**
@@ -191,5 +195,6 @@ export async function getValidationLabReport(
     tradeRemovalConcentration: { ...computeTradeRemovalConcentration(targetTrades), topN },
     directionalBreakdown: computeDirectionalBreakdown(targetTrades),
     benchmarkComparison,
+    monteCarloFan: computeMonteCarloFan(targetTrades, target.initialCapital),
   };
 }

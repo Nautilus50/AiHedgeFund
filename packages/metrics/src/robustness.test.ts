@@ -3,6 +3,7 @@ import {
   computeBenchmarkComparison,
   computeDegradation,
   computeDirectionalBreakdown,
+  computeMonteCarloFan,
   computeTradeRemovalConcentration,
 } from "./robustness.js";
 import type { MetricsTrade } from "./types.js";
@@ -149,5 +150,64 @@ describe("computeBenchmarkComparison", () => {
 
   it("returns undefined when the benchmark entry price is zero", () => {
     expect(computeBenchmarkComparison("100.00000000", "1000.00000000", 0, 110)).toBeUndefined();
+  });
+});
+
+describe("computeMonteCarloFan", () => {
+  function trade(netPnl: number, isOpen = false): MetricsTrade {
+    return { tradeNumber: 1, direction: "LONG", entryTime: "2024-01-01T00:00:00.000Z", exitTime: isOpen ? undefined : "2024-01-01T01:00:00.000Z", netPnl: isOpen ? undefined : netPnl, isOpen };
+  }
+
+  it("is deterministic — identical seed and trades produce identical output, run twice", () => {
+    const trades = [trade(100), trade(-40), trade(60), trade(-20), trade(30)];
+    const a = computeMonteCarloFan(trades, "1000.00000000");
+    const b = computeMonteCarloFan(trades, "1000.00000000");
+    expect(a).toEqual(b);
+  });
+
+  it("p50 sits between p5 and p95 for both bands, over a mixed win/loss ledger", () => {
+    const trades = [trade(100), trade(-40), trade(60), trade(-20), trade(30), trade(-10), trade(50)];
+    const result = computeMonteCarloFan(trades, "1000.00000000");
+    expect(result).toBeDefined();
+    if (!result) return;
+    expect(result.finalReturnPct.p5).toBeLessThanOrEqual(result.finalReturnPct.p50);
+    expect(result.finalReturnPct.p50).toBeLessThanOrEqual(result.finalReturnPct.p95);
+    expect(result.maxDrawdownPct.p5).toBeLessThanOrEqual(result.maxDrawdownPct.p50);
+    expect(result.maxDrawdownPct.p50).toBeLessThanOrEqual(result.maxDrawdownPct.p95);
+  });
+
+  it("reports zero drawdown and a fixed final return when every trade is a winner", () => {
+    // Every resample only ever draws from all-positive outcomes, so equity is monotonically non-decreasing on every path.
+    const trades = [trade(10), trade(10), trade(10)];
+    const result = computeMonteCarloFan(trades, "1000.00000000", { iterations: 200 });
+    expect(result?.maxDrawdownPct.p95).toBe(0);
+    // Sum of any 3-of-3-with-replacement draws from {10,10,10} is always 30 -> return = 30/1000*100 = 3%.
+    expect(result?.finalReturnPct.p5).toBeCloseTo(3, 6);
+    expect(result?.finalReturnPct.p95).toBeCloseTo(3, 6);
+  });
+
+  it("excludes open trades from the resampling pool", () => {
+    const trades = [trade(10), trade(20), trade(0, true)];
+    const result = computeMonteCarloFan(trades, "1000.00000000", { iterations: 500 });
+    // Only {10, 20} ever get drawn, 2 draws per path — every path's sum lies in [20, 40].
+    // A stray 0 from the open trade leaking in would let a path sum below 20, pulling p5 down.
+    expect(result?.finalReturnPct.p5).toBeGreaterThanOrEqual((10 + 10) / 10 - 0.01);
+    expect(result?.finalReturnPct.p95).toBeLessThanOrEqual((20 + 20) / 10 + 0.01);
+  });
+
+  it("returns undefined for a run with no closed trades", () => {
+    expect(computeMonteCarloFan([trade(0, true)], "1000.00000000")).toBeUndefined();
+  });
+
+  it("returns undefined for a non-positive initialCapital", () => {
+    expect(computeMonteCarloFan([trade(10)], "0.00000000")).toBeUndefined();
+    expect(computeMonteCarloFan([trade(10)], "-500.00000000")).toBeUndefined();
+  });
+
+  it("a different seed produces a different fan over the same trades", () => {
+    const trades = [trade(100), trade(-40), trade(60), trade(-20), trade(30), trade(-70), trade(15)];
+    const a = computeMonteCarloFan(trades, "1000.00000000", { seed: 1 });
+    const b = computeMonteCarloFan(trades, "1000.00000000", { seed: 2 });
+    expect(a?.finalReturnPct).not.toEqual(b?.finalReturnPct);
   });
 });
