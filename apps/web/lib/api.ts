@@ -1,5 +1,6 @@
 import "server-only";
 import { auth } from "@clerk/nextjs/server";
+import { unstable_rethrow } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -73,6 +74,11 @@ export async function apiFetchSafe<T>(path: string, options?: ApiFetchOptions): 
   try {
     return { data: await apiFetch<T>(path, options) };
   } catch (error) {
+    // Next.js signals "this route needs dynamic rendering" (from auth(),
+    // headers(), etc.) by throwing during the static-optimization pass.
+    // A blanket catch here would swallow that signal and leave the route
+    // wrongly marked static, so re-throw Next's internal errors first.
+    unstable_rethrow(error);
     return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 }
