@@ -12,8 +12,12 @@ export interface BullMqConnection {
   retryStrategy: (times: number) => number | null;
 }
 
-const CONNECT_TIMEOUT_MS = 10_000;
-const MAX_CONNECT_ATTEMPTS = 4;
+// ioredis's own default connectTimeout is already 10s, so a single failed
+// attempt can burn the caller's entire budget before a retry even happens.
+// Kept short and paired with a small attempt count so the worst case (every
+// attempt times out) still resolves in a few seconds, not tens of seconds.
+const CONNECT_TIMEOUT_MS = 2_000;
+const MAX_CONNECT_ATTEMPTS = 2;
 
 /**
  * ioredis's default retryStrategy backs off forever and never gives up, so
@@ -25,7 +29,7 @@ const MAX_CONNECT_ATTEMPTS = 4;
  */
 function boundedRetryStrategy(times: number): number | null {
   if (times > MAX_CONNECT_ATTEMPTS) return null;
-  return Math.min(times * 500, 2000);
+  return Math.min(times * 300, 1000);
 }
 
 /**
