@@ -56,6 +56,9 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     ...options,
     headers,
     cache: "no-store",
+    // Without a timeout, an unreachable API leaves the page's loading
+    // skeleton spinning forever instead of surfacing a visible error.
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {
