@@ -5,12 +5,27 @@ import type { QueueName } from "../queues.js";
 export interface BullMqConnection {
   host: string;
   port: number;
+  username?: string;
+  password?: string;
+  tls?: Record<string, never>;
 }
 
-/** Parses a redis:// URL into the host/port shape BullMQ expects. */
+/**
+ * Parses a redis:// or rediss:// URL into the connection shape BullMQ's
+ * ioredis client expects. Managed Redis (e.g. Railway) requires the
+ * password carried in the URL — dropping it here doesn't fail fast, it
+ * leaves ioredis retrying an unauthenticated connection forever, which
+ * hangs any caller (e.g. queue-depth reads) with no visible error.
+ */
 export function parseRedisUrl(url: string): BullMqConnection {
   const parsed = new URL(url);
-  return { host: parsed.hostname, port: Number(parsed.port || 6379) };
+  return {
+    host: parsed.hostname,
+    port: Number(parsed.port || 6379),
+    ...(parsed.username ? { username: parsed.username } : {}),
+    ...(parsed.password ? { password: parsed.password } : {}),
+    ...(parsed.protocol === "rediss:" ? { tls: {} } : {}),
+  };
 }
 
 /**
