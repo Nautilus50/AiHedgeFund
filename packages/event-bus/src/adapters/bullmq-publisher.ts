@@ -8,6 +8,24 @@ export interface BullMqConnection {
   username?: string;
   password?: string;
   tls?: Record<string, never>;
+  connectTimeout: number;
+  retryStrategy: (times: number) => number | null;
+}
+
+const CONNECT_TIMEOUT_MS = 10_000;
+const MAX_CONNECT_ATTEMPTS = 4;
+
+/**
+ * ioredis's default retryStrategy backs off forever and never gives up, so
+ * a connection that can never succeed (wrong credentials, unreachable
+ * host) leaves every caller — queue publishes, worker startup, the
+ * Operations panel's queue-depth read — hanging silently instead of
+ * failing with a visible error. Bounding it turns that into a real,
+ * catchable error after a few seconds.
+ */
+function boundedRetryStrategy(times: number): number | null {
+  if (times > MAX_CONNECT_ATTEMPTS) return null;
+  return Math.min(times * 500, 2000);
 }
 
 /**
@@ -25,6 +43,8 @@ export function parseRedisUrl(url: string): BullMqConnection {
     ...(parsed.username ? { username: parsed.username } : {}),
     ...(parsed.password ? { password: parsed.password } : {}),
     ...(parsed.protocol === "rediss:" ? { tls: {} } : {}),
+    connectTimeout: CONNECT_TIMEOUT_MS,
+    retryStrategy: boundedRetryStrategy,
   };
 }
 
