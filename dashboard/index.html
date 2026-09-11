@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy Board</title>
+<style>
+  :root{
+    --bg:#0a0b0d;
+    --panel:#121417;
+    --panel-2:#181b1f;
+    --border:#242830;
+    --fg:#e8eaed;
+    --fg-dim:#9aa1ac;
+    --fg-faint:#5b636f;
+    --accent:#5eead4;
+    --accent-dim:#2c3f3b;
+    --danger:#d9827c;
+    --forward:#f0b429;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    min-height:100vh;
+  }
+  .mono{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  .app{
+    display:flex;
+    min-height:100vh;
+    gap:1px;
+    background:var(--border);
+  }
+  .panel-left{
+    background:var(--bg);
+    width:460px;
+    flex:0 0 460px;
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    padding:20px 16px;
+  }
+  .panel-right{
+    background:var(--bg);
+    flex:1 1 auto;
+    padding:24px 32px;
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+  }
+  h1{
+    font-size:15px;
+    font-weight:600;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--fg-dim);
+    margin:0 0 16px;
+  }
+  .search-box{
+    width:100%;
+    padding:10px 12px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    color:var(--fg);
+    font-size:14px;
+    margin-bottom:14px;
+  }
+  .search-box::placeholder{color:var(--fg-faint);}
+  .search-box:focus{outline:none;border-color:var(--accent);}
+
+  .list-head{
+    display:grid;
+    grid-template-columns: minmax(90px,1fr) 60px 52px 42px 48px 40px;
+    gap:6px;
+    padding:0 8px 8px;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    color:var(--fg-faint);
+    border-bottom:1px solid var(--border);
+  }
+  .list-head button{
+    background:none;
+    border:none;
+    color:var(--fg-faint);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    padding:0;
+    text-align:right;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .list-head button:hover, .list-head button.active{color:var(--fg-dim);}
+  .list-head span:first-child, .list-head button:nth-of-type(1){text-align:left;}
+  .col-name{text-align:left;}
+  .col-market{text-align:left;}
+
+  .list-scroll{
+    flex:1 1 auto;
+    overflow-y:auto;
+    overflow-x:auto;
+    min-height:120px;
+  }
+  .row{
+    display:grid;
+    grid-template-columns: minmax(90px,1fr) 60px 52px 42px 48px 40px;
+    gap:6px;
+    align-items:center;
+    padding:11px 8px;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+  }
+  .row:hover{background:var(--panel);}
+  .row.selected{background:var(--accent-dim);}
+  .row .name{
+    font-size:14px;
+    font-weight:500;
+    color:var(--fg);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .row .market{
+    font-size:12px;
+    color:var(--fg-dim);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .row .market .tf{color:var(--fg-faint);}
+  .row .num{
+    font-size:13px;
+    text-align:right;
+    white-space:nowrap;
+  }
+  .pos{color:var(--accent);}
+  .neg{color:var(--danger);}
+  .dash{color:var(--fg-faint);}
+
+  .empty-list{
+    padding:24px 10px;
+    color:var(--fg-faint);
+    font-size:13px;
+  }
+
+  .right-header{margin-bottom:20px;}
+  .r-name{
+    font-size:24px;
+    font-weight:600;
+    margin:0 0 6px;
+    color:var(--fg);
+  }
+  .r-sub{
+    font-size:13px;
+    color:var(--fg-dim);
+    margin:0 0 18px;
+  }
+  .r-sub .tf{color:var(--fg-faint);margin-left:8px;}
+
+  .metrics-row{
+    display:flex;
+    gap:32px;
+    flex-wrap:wrap;
+    margin-bottom:24px;
+  }
+  .metric{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+  .metric-label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--fg-faint);
+  }
+  .metric-value{
+    font-size:26px;
+    font-weight:500;
+  }
+
+  .chart-wrap{
+    position:relative;
+    flex:1 1 auto;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    min-height:320px;
+    padding:8px;
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:100%;
+  }
+  .tooltip{
+    position:absolute;
+    pointer-events:none;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:12px;
+    color:var(--fg);
+    transform:translate(-50%,-100%);
+    white-space:nowrap;
+    display:none;
+  }
+  .tooltip .tt-val{font-weight:600;}
+  .tooltip .tt-date{color:var(--fg-faint);font-size:11px;}
+
+  .load-error{
+    color:var(--danger);
+    font-size:13px;
+    padding:16px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    max-width:520px;
+  }
+
+  @media (max-width: 860px){
+    .app{flex-direction:column;}
+    .panel-left{
+      width:auto;
+      flex:0 0 auto;
+      min-height:0;
+      max-height:60vh;
+    }
+    .panel-right{padding:20px 16px;}
+    .chart-wrap{min-height:280px;}
+    .metrics-row{gap:20px;}
+    .metric-value{font-size:22px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel-left">
+    <h1>Strategy Board</h1>
+    <input type="text" class="search-box" id="search" placeholder="Search name or market…" autocomplete="off">
+    <div class="list-head">
+      <span class="col-name">Name</span>
+      <span class="col-market">Market</span>
+      <button type="button" data-key="netPct">Net %</button>
+      <button type="button" data-key="pf">PF</button>
+      <button type="button" data-key="maxDD">MaxDD</button>
+      <button type="button" data-key="trades">Trades</button>
+    </div>
+    <div class="list-scroll" id="listScroll"></div>
+  </div>
+  <div class="panel-right">
+    <div class="right-header">
+      <h2 class="r-name" id="rName">—</h2>
+      <p class="r-sub" id="rSub">—</p>
+      <div class="metrics-row" id="rMetrics"></div>
+    </div>
+    <div class="chart-wrap" id="chartWrap">
+      <canvas id="chart"></canvas>
+      <div class="tooltip" id="tooltip"><div class="tt-val"></div><div class="tt-date"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var state = {
+    strategies: [],
+    filtered: [],
+    selectedIndex: -1,
+    sortKey: null,
+    sortDir: 1,
+    query: ""
+  };
+
+  var listScrollEl = document.getElementById("listScroll");
+  var searchEl = document.getElementById("search");
+  var rNameEl = document.getElementById("rName");
+  var rSubEl = document.getElementById("rSub");
+  var rMetricsEl = document.getElementById("rMetrics");
+  var chartWrap = document.getElementById("chartWrap");
+  var canvas = document.getElementById("chart");
+  var tooltip = document.getElementById("tooltip");
+  var ctx = canvas.getContext("2d");
+
+  function fmtPct(v){
+    if(v === null || v === undefined || typeof v !== "number" || isNaN(v)) return null;
+    return (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+  }
+  function fmtNum(v, digits){
+    if(v === null || v === undefined || typeof v !== "number" || isNaN(v)) return null;
+    return v.toFixed(digits);
+  }
+  function fmtInt(v){
+    if(v === null || v === undefined || typeof v !== "number" || isNaN(v)) return null;
+    return String(Math.round(v));
+  }
+
+  function setDashOrText(el, text, cls){
+    el.textContent = "";
+    if(text === null){
+      el.textContent = "—";
+      el.className = el.className.replace(/\bpos\b|\bneg\b/g,"").trim();
+      el.classList.add("dash");
+    } else {
+      el.textContent = text;
+      el.classList.remove("dash");
+      if(cls) el.classList.add(cls);
+    }
+  }
+
+  // ---------- data loading ----------
+  fetch("strategies.json")
+    .then(function(res){
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function(data){
+      if(!Array.isArray(data)) throw new Error("strategies.json must be a JSON array");
+      state.strategies = data;
+      applyFilterAndSort();
+      if(state.filtered.length > 0){
+        selectStrategy(0);
+      } else {
+        renderList();
+        renderDetail(null);
+      }
+    })
+    .catch(function(err){
+      listScrollEl.textContent = "";
+      var box = document.createElement("div");
+      box.className = "load-error";
+      box.textContent = "Could not load strategies.json (" + err.message + "). " +
+        "If you opened this file directly by double-clicking it, some browsers block " +
+        "loading local files this way — try Firefox, or serve this folder with a static " +
+        "server (for example: python3 -m http.server) and open it from there.";
+      listScrollEl.appendChild(box);
+    });
+
+  // ---------- list rendering ----------
+  function applyFilterAndSort(){
+    var q = state.query.trim().toLowerCase();
+    var list = state.strategies.filter(function(s){
+      if(!q) return true;
+      var name = (s.name || "").toLowerCase();
+      var market = (s.market || "").toLowerCase();
+      return name.indexOf(q) !== -1 || market.indexOf(q) !== -1;
+    });
+
+    if(state.sortKey){
+      var key = state.sortKey;
+      var dir = state.sortDir;
+      list = list.slice().sort(function(a, b){
+        var av = a.metrics ? a.metrics[key] : undefined;
+        var bv = b.metrics ? b.metrics[key] : undefined;
+        var aValid = typeof av === "number" && !isNaN(av);
+        var bValid = typeof bv === "number" && !isNaN(bv);
+        if(!aValid && !bValid) return 0;
+        if(!aValid) return 1;
+        if(!bValid) return -1;
+        return (av - bv) * dir;
+      });
+    }
+
+    state.filtered = list;
+  }
+
+  function renderList(){
+    listScrollEl.textContent = "";
+
+    if(state.filtered.length === 0){
+      var empty = document.createElement("div");
+      empty.className = "empty-list";
+      empty.textContent = state.strategies.length === 0 ? "No strategies found." : "No strategies match your search.";
+      listScrollEl.appendChild(empty);
+      return;
+    }
+
+    state.filtered.forEach(function(s, i){
+      var row = document.createElement("div");
+      row.className = "row";
+      if(i === state.selectedIndex) row.classList.add("selected");
+      row.setAttribute("role", "button");
+      row.setAttribute("tabindex", "0");
+
+      var nameEl = document.createElement("div");
+      nameEl.className = "name";
+      nameEl.textContent = s.name || "—";
+      row.appendChild(nameEl);
+
+      var marketEl = document.createElement("div");
+      marketEl.className = "market";
+      marketEl.textContent = (s.market || "—") + (s.timeframe ? "  " : "");
+      if(s.timeframe){
+        var tfSpan = document.createElement("span");
+        tfSpan.className = "tf";
+        tfSpan.textContent = s.timeframe;
+        marketEl.appendChild(tfSpan);
+      }
+      row.appendChild(marketEl);
+
+      var m = s.metrics || {};
+
+      var netEl = document.createElement("div");
+      netEl.className = "num mono";
+      var netStr = fmtPct(m.netPct);
+      setDashOrText(netEl, netStr, netStr !== null ? (m.netPct >= 0 ? "pos" : "neg") : null);
+      row.appendChild(netEl);
+
+      var pfEl = document.createElement("div");
+      pfEl.className = "num mono";
+      setDashOrText(pfEl, fmtNum(m.pf, 2));
+      row.appendChild(pfEl);
+
+      var ddEl = document.createElement("div");
+      ddEl.className = "num mono";
+      var ddStr = fmtNum(m.maxDD, 1);
+      setDashOrText(ddEl, ddStr !== null ? ddStr + "%" : null);
+      row.appendChild(ddEl);
+
+      var trEl = document.createElement("div");
+      trEl.className = "num mono";
+      setDashOrText(trEl, fmtInt(m.trades));
+      row.appendChild(trEl);
+
+      row.addEventListener("click", function(){ selectStrategy(i); });
+      row.addEventListener("keydown", function(e){
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); selectStrategy(i); }
+      });
+
+      listScrollEl.appendChild(row);
+    });
+  }
+
+  function selectStrategy(filteredIndex){
+    state.selectedIndex = filteredIndex;
+    renderList();
+    renderDetail(state.filtered[filteredIndex]);
+  }
+
+  // ---------- sorting header ----------
+  var headerButtons = document.querySelectorAll(".list-head button");
+  headerButtons.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var key = btn.getAttribute("data-key");
+      var selected = state.filtered[state.selectedIndex];
+      if(state.sortKey === key){
+        state.sortDir = state.sortDir * -1;
+      } else {
+        state.sortKey = key;
+        state.sortDir = 1;
+      }
+      headerButtons.forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      applyFilterAndSort();
+      if(selected){
+        var newIndex = state.filtered.indexOf(selected);
+        state.selectedIndex = newIndex;
+      }
+      renderList();
+    });
+  });
+
+  searchEl.addEventListener("input", function(){
+    var selected = state.filtered[state.selectedIndex];
+    state.query = searchEl.value;
+    applyFilterAndSort();
+    if(selected){
+      var newIndex = state.filtered.indexOf(selected);
+      state.selectedIndex = newIndex === -1 ? (state.filtered.length ? 0 : -1) : newIndex;
+    } else {
+      state.selectedIndex = state.filtered.length ? 0 : -1;
+    }
+    renderList();
+    if(state.selectedIndex >= 0){
+      renderDetail(state.filtered[state.selectedIndex]);
+    } else {
+      renderDetail(null);
+    }
+  });
+
+  // ---------- detail / chart ----------
+  var currentStrategy = null;
+
+  function renderDetail(strategy){
+    currentStrategy = strategy;
+
+    if(!strategy){
+      rNameEl.textContent = "—";
+      rSubEl.textContent = "—";
+      rMetricsEl.textContent = "";
+      drawChart(null);
+      return;
+    }
+
+    rNameEl.textContent = strategy.name || "—";
+    rSubEl.textContent = "";
+    var marketSpan = document.createElement("span");
+    marketSpan.textContent = strategy.market || "—";
+    rSubEl.appendChild(marketSpan);
+    if(strategy.timeframe){
+      var tfSpan = document.createElement("span");
+      tfSpan.className = "tf";
+      tfSpan.textContent = strategy.timeframe;
+      rSubEl.appendChild(tfSpan);
+    }
+
+    rMetricsEl.textContent = "";
+    var m = strategy.metrics || {};
+    var metricDefs = [
+      { label: "Net Profit", value: fmtPct(m.netPct), colorPos: m.netPct },
+      { label: "Profit Factor", value: fmtNum(m.pf, 2) },
+      { label: "Max Drawdown", value: fmtNum(m.maxDD, 1) !== null ? fmtNum(m.maxDD, 1) + "%" : null },
+      { label: "Trades", value: fmtInt(m.trades) }
+    ];
+    metricDefs.forEach(function(def){
+      var wrap = document.createElement("div");
+      wrap.className = "metric";
+      var lab = document.createElement("div");
+      lab.className = "metric-label";
+      lab.textContent = def.label;
+      var val = document.createElement("div");
+      val.className = "metric-value mono";
+      if(def.value === null){
+        val.textContent = "—";
+        val.classList.add("dash");
+      } else {
+        val.textContent = def.value;
+        if(def.colorPos !== undefined){
+          val.classList.add(def.colorPos >= 0 ? "pos" : "neg");
+        }
+      }
+      wrap.appendChild(lab);
+      wrap.appendChild(val);
+      rMetricsEl.appendChild(wrap);
+    });
+
+    drawChart(strategy);
+  }
+
+  // ---------- canvas chart ----------
+  var chartState = null; // holds layout info for hover/tooltip
+
+  function resizeCanvas(){
+    var rect = chartWrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.max(1, rect.width - 16);
+    var h = Math.max(1, rect.height - 16);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+
+  function drawChart(strategy){
+    var dims = resizeCanvas();
+    var w = dims.w, h = dims.h;
+    ctx.clearRect(0, 0, w, h);
+
+    var equity = strategy && Array.isArray(strategy.equity) ? strategy.equity : [];
+    equity = equity.filter(function(p){
+      return Array.isArray(p) && typeof p[0] === "number" && typeof p[1] === "number";
+    });
+
+    if(!strategy || equity.length === 0){
+      chartState = null;
+      ctx.fillStyle = getComputedColor("--fg-faint");
+      ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("no curve recorded", w / 2, h / 2);
+      return;
+    }
+
+    var padL = 46, padR = 12, padT = 16, padB = 24;
+    var plotW = Math.max(1, w - padL - padR);
+    var plotH = Math.max(1, h - padT - padB);
+
+    var xs = equity.map(function(p){ return p[0]; });
+    var ys = equity.map(function(p){ return p[1]; });
+    var xMin = Math.min.apply(null, xs);
+    var xMax = Math.max.apply(null, xs);
+    var yMin = Math.min.apply(null, ys);
+    var yMax = Math.max.apply(null, ys);
+    if(yMin === yMax){ yMin -= 1; yMax += 1; }
+    var yPad = (yMax - yMin) * 0.08;
+    yMin -= yPad; yMax += yPad;
+    if(xMin === xMax){ xMax = xMin + 1; }
+
+    function xPix(x){ return padL + ((x - xMin) / (xMax - xMin)) * plotW; }
+    function yPix(y){ return padT + (1 - (y - yMin) / (yMax - yMin)) * plotH; }
+
+    // grid + y labels
+    ctx.strokeStyle = getComputedColor("--border");
+    ctx.lineWidth = 1;
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillStyle = getComputedColor("--fg-faint");
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    var gridLines = 4;
+    for(var i = 0; i <= gridLines; i++){
+      var gy = padT + (plotH / gridLines) * i;
+      ctx.beginPath();
+      ctx.moveTo(padL, gy + 0.5);
+      ctx.lineTo(padL + plotW, gy + 0.5);
+      ctx.stroke();
+      var val = yMax - ((yMax - yMin) / gridLines) * i;
+      ctx.fillText(val.toFixed(1) + "%", padL - 8, gy);
+    }
+
+    var forwardFrom = null;
+    if(strategy.forward_from){
+      var t = Date.parse(strategy.forward_from);
+      if(!isNaN(t)) forwardFrom = t;
+    }
+
+    function segmentColor(x){
+      return (forwardFrom !== null && x >= forwardFrom) ? getComputedColor("--forward") : getComputedColor("--accent");
+    }
+
+    // fill under curve, split at forward boundary if present
+    function drawSeries(points, color, fillAlpha){
+      if(points.length < 1) return;
+      ctx.beginPath();
+      ctx.moveTo(xPix(points[0][0]), yPix(points[0][1]));
+      for(var j = 1; j < points.length; j++){
+        ctx.lineTo(xPix(points[j][0]), yPix(points[j][1]));
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      ctx.lineTo(xPix(points[points.length - 1][0]), padT + plotH);
+      ctx.lineTo(xPix(points[0][0]), padT + plotH);
+      ctx.closePath();
+      ctx.fillStyle = color + fillAlpha;
+      ctx.fill();
+    }
+
+    if(forwardFrom === null || equity[0][0] >= forwardFrom){
+      drawSeries(equity, forwardFrom !== null ? getComputedColor("--forward") : getComputedColor("--accent"), "26");
+    } else if(equity[equity.length - 1][0] < forwardFrom){
+      drawSeries(equity, getComputedColor("--accent"), "26");
+    } else {
+      var histPart = [];
+      var fwdPart = [];
+      for(var k = 0; k < equity.length; k++){
+        if(equity[k][0] <= forwardFrom){
+          histPart.push(equity[k]);
+        }
+        if(equity[k][0] >= forwardFrom){
+          fwdPart.push(equity[k]);
+        }
+      }
+      // ensure boundary point present in both via interpolation
+      drawSeries(histPart, getComputedColor("--accent"), "26");
+      drawSeries(fwdPart, getComputedColor("--forward"), "26");
+
+      // boundary marker
+      var bx = xPix(forwardFrom);
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = getComputedColor("--fg-faint");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx + 0.5, padT);
+      ctx.lineTo(bx + 0.5, padT + plotH);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      ctx.fillStyle = getComputedColor("--fg-dim");
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("FORWARD", Math.min(bx + 4, padL + plotW - 52), padT + 2);
+    }
+
+    chartState = {
+      equity: equity, xMin: xMin, xMax: xMax, yMin: yMin, yMax: yMax,
+      padL: padL, padR: padR, padT: padT, padB: padB, plotW: plotW, plotH: plotH,
+      xPix: xPix, yPix: yPix
+    };
+  }
+
+  function getComputedColor(varName){
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  }
+
+  // ---------- hover / tooltip ----------
+  function nearestPoint(mx){
+    if(!chartState) return null;
+    var eq = chartState.equity;
+    var best = null, bestDist = Infinity;
+    for(var i = 0; i < eq.length; i++){
+      var px = chartState.xPix(eq[i][0]);
+      var d = Math.abs(px - mx);
+      if(d < bestDist){ bestDist = d; best = eq[i]; }
+    }
+    return best;
+  }
+
+  function formatDate(ts){
+    var d = new Date(ts);
+    if(isNaN(d.getTime())) return "";
+    var y = d.getUTCFullYear();
+    var mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    var da = String(d.getUTCDate()).padStart(2, "0");
+    return y + "-" + mo + "-" + da;
+  }
+
+  canvas.addEventListener("mousemove", function(e){
+    if(!chartState){ tooltip.style.display = "none"; return; }
+    var rect = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    if(mx < chartState.padL || mx > chartState.padL + chartState.plotW){
+      tooltip.style.display = "none";
+      return;
+    }
+    var pt = nearestPoint(mx);
+    if(!pt){ tooltip.style.display = "none"; return; }
+
+    tooltip.querySelector(".tt-val").textContent = (pt[1] > 0 ? "+" : "") + pt[1].toFixed(2) + "%";
+    tooltip.querySelector(".tt-date").textContent = formatDate(pt[0]);
+    tooltip.style.left = (chartState.xPix(pt[0])) + "px";
+    tooltip.style.top = (chartState.yPix(pt[1]) - 8) + "px";
+    tooltip.style.display = "block";
+  });
+  canvas.addEventListener("mouseleave", function(){
+    tooltip.style.display = "none";
+  });
+
+  window.addEventListener("resize", function(){
+    if(currentStrategy) drawChart(currentStrategy);
+    else drawChart(null);
+  });
+
+})();
+</script>
+</body>
+</html>
